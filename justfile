@@ -28,6 +28,11 @@ fetch-models:
 smoke-gpu:
     python tests/smoke/smoke_gpu.py
 
+# Audio-path smoke gate — tier-1 NRT synth render. Needs SuperCollider+SuperDirt;
+# set WAV2TIDAL_SCLANG and WAV2TIDAL_SUPERDIRT_QUARK. Not in CI.
+smoke-audio:
+    python tests/smoke/smoke_audio.py
+
 # Environment preflight for the live session (GHCi/SuperDirt/PipeWire/models).
 doctor:
     @echo "TODO(T045): wav2tidal doctor preflight"
