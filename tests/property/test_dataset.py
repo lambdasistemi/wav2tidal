@@ -74,6 +74,8 @@ class _FakeRenderers:
         self.sr = sr
         self.rt_jobs: list = []
         self.nrt_calls: list = []
+        self.scene_rt_jobs: list = []
+        self.scene_nrt_calls: int = 0
 
     def _write(self, path, seconds, hz):
         t = np.arange(int(seconds * self.sr)) / self.sr
@@ -90,13 +92,30 @@ class _FakeRenderers:
         self._write(out, seconds, 220 + 10 * len(events))
         return out
 
+    def rt_scenes(self, jobs, banks_dir=None):
+        self.scene_rt_jobs.append(len(jobs))
+        for out, plan in jobs:
+            self._write(out, plan.duration, 330 + 5 * len(plan.chains))
+        return [j[0] for j in jobs]
+
+    def nrt_scene(self, plan, out):
+        self.scene_nrt_calls += 1
+        self._write(out, plan.duration, 550 + 5 * len(plan.chains))
+        return out
+
 
 def _run_synth(root, **kw):
     _make_banks(root)
     fakes = _FakeRenderers()
-    cfg = _cfg(mode="synth", size=12, rt_batch_size=4, **kw)
+    kw = {"mode": "synth", "size": 12, "rt_batch_size": 4, **kw}
+    cfg = _cfg(**kw)
     result = config_dataset(
-        root, cfg, rt_batch=fakes.rt_batch, nrt_events=fakes.nrt_events
+        root,
+        cfg,
+        rt_batch=fakes.rt_batch,
+        nrt_events=fakes.nrt_events,
+        rt_scenes=fakes.rt_scenes,
+        nrt_scene=fakes.nrt_scene,
     )
     return result, fakes
 
@@ -109,7 +128,7 @@ def test_synth_dataset_written_with_renderer_column(tmp_path):
     ]
     assert len(rows) == 12
     assert {r["renderer"] for r in rows} <= {"mix", "nrt", "rt"}
-    assert all(r["output"].startswith('d1 $ s "') for r in rows)
+    assert all(r["output"].startswith(('d1 $ s "', "scene voice ")) for r in rows)
     # every pair's captured audio is kept as provenance
     assert len(list((result.path / "audio").glob("*.wav"))) == 12
     meta = json.loads((result.path / "config.json").read_text())
@@ -139,7 +158,12 @@ def test_synth_mode_works_without_banks(tmp_path):
     fakes = _FakeRenderers()
     cfg = _cfg(mode="synth", size=6, rt_batch_size=4)
     result = config_dataset(
-        tmp_path, cfg, rt_batch=fakes.rt_batch, nrt_events=fakes.nrt_events
+        tmp_path,
+        cfg,
+        rt_batch=fakes.rt_batch,
+        nrt_events=fakes.nrt_events,
+        rt_scenes=fakes.rt_scenes,
+        nrt_scene=fakes.nrt_scene,
     )
     assert result.n_pairs == 6
     rows = [
@@ -147,3 +171,33 @@ def test_synth_mode_works_without_banks(tmp_path):
         for line in (result.path / "pairs.jsonl").read_text().strip().splitlines()
     ]
     assert {r["renderer"] for r in rows} <= {"nrt", "rt"}  # no banks -> no mix
+
+
+def test_hybrid_corpus_mixes_scenes_and_lines(tmp_path):
+    result, fakes = _run_synth(tmp_path, size=20)
+    rows = [
+        json.loads(line)
+        for line in (result.path / "pairs.jsonl").read_text().strip().splitlines()
+    ]
+    kinds = {r["kind"] for r in rows}
+    assert kinds == {"scene", "line"}  # default scene_ratio 0.7 gives both
+    for r in rows:
+        if r["kind"] == "scene":
+            assert r["output"].startswith("scene voice ")
+            assert r["renderer"] in ("nrt", "rt")
+        assert "motion=" in r["input"]  # movement-aware descriptor
+
+
+def test_scene_ratio_zero_reproduces_line_corpus(tmp_path):
+    result, fakes = _run_synth(tmp_path, scene_ratio=0.0)
+    rows = [
+        json.loads(line)
+        for line in (result.path / "pairs.jsonl").read_text().strip().splitlines()
+    ]
+    assert all(r["kind"] == "line" for r in rows)
+    assert fakes.scene_nrt_calls == 0 and not fakes.scene_rt_jobs
+
+
+def test_scene_rt_jobs_are_batched(tmp_path):
+    _, fakes = _run_synth(tmp_path, size=24, scene_ratio=1.0)
+    assert all(n <= 4 for n in fakes.scene_rt_jobs)

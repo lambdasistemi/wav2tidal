@@ -80,6 +80,11 @@ class DatasetConfig:
     mode: str = "slices"
     tail_seconds: float = 2.0  # render past the last cycle (release/FX tails)
     rt_batch_size: int = 16  # RT jobs per booted SuperDirt (boot ~15 s amortized)
+    # Hybrid corpus mix (issue #30): fraction of items that are parameter
+    # scenes (grammar v3) vs v2 event lines. 0.0 reproduces the pure
+    # event-line dataset.
+    scene_ratio: float = 0.7
+    automation_tick: float = 0.05  # trajectory tick for scene renders (s)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> DatasetConfig:
