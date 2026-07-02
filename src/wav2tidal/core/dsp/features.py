@@ -13,6 +13,7 @@ their strength honestly rather than feigning precision.
 from __future__ import annotations
 
 import librosa
+import librosa.feature.rhythm  # noqa: F401  (register lazy-loaded submodule)
 import numpy as np
 
 _PITCH_CLASSES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
@@ -86,9 +87,17 @@ def estimate_tempo(
     return bpm, confidence
 
 
+def _chroma(clip: np.ndarray, sr: int, hop_length: int) -> np.ndarray:
+    """CQT chroma (better for key), with an STFT fallback for short/low-sr clips."""
+    try:
+        return librosa.feature.chroma_cqt(y=clip, sr=sr, hop_length=hop_length)
+    except librosa.util.exceptions.ParameterError:
+        return librosa.feature.chroma_stft(y=clip, sr=sr, hop_length=hop_length)
+
+
 def estimate_key(clip: np.ndarray, sr: int, hop_length: int = 512) -> tuple[str, float]:
     """Krumhansl-Schmuckler key estimate -> (label, correlation strength)."""
-    chroma = librosa.feature.chroma_cqt(y=clip, sr=sr, hop_length=hop_length)
+    chroma = _chroma(clip, sr, hop_length)
     profile = chroma.mean(axis=1)
     if float(np.linalg.norm(profile)) < 1e-8:
         return "N/A", 0.0
