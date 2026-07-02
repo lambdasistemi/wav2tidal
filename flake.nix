@@ -30,6 +30,8 @@
             # live audio capture
             soundcard
             sounddevice
+            # pattern grammar (subset parser/validator)
+            lark
             # config / io
             pyyaml
             pyarrow
