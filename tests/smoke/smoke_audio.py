@@ -15,7 +15,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from wav2tidal.io.superdirt import nrt_render
+from wav2tidal.io.superdirt import nrt_render, rt_render
 
 
 def _md5(p: Path) -> str:
@@ -49,8 +49,33 @@ def main() -> int:
         if _md5(a) != _md5(b):
             print("FAIL: NRT render is not deterministic", file=sys.stderr)
             return 1
+        print("  NRT: non-silent + deterministic OK")
 
-    print("PASS: SuperDirt supersaw renders headless, non-silent, deterministic (NRT).")
+        # Stage 2 — real-time SuperDirt render WITH global FX (reverb + filter).
+        rt = Path(td) / "rt.wav"
+        try:
+            rt_render(
+                "supersaw",
+                {"note": 0, "sustain": 1.5, "cutoff": 500, "room": 0.7, "size": 0.9},
+                3.0,
+                rt,
+            )
+        except RuntimeError as e:
+            print(f"FAIL (rt): {e}", file=sys.stderr)
+            return 1
+        yr, srr = sf.read(str(rt))
+        env = abs(yr).mean(axis=1) if yr.ndim > 1 else abs(yr)
+        import numpy as np
+
+        active = np.where(env > 0.005)[0]
+        span = (active[-1] - active[0]) / srr if active.size else 0.0
+        peak = float(abs(yr).max())
+        print(f"  RT: span={span:.2f}s peak={peak:.3f} tail={span > 1.7}")
+        if peak < 0.01 or span < 1.7:
+            print("FAIL: RT render silent or missing FX tail", file=sys.stderr)
+            return 1
+
+    print("PASS: SuperDirt NRT (deterministic) + real-time FX capture both work.")
     return 0
 
 
