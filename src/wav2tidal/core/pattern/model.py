@@ -56,3 +56,96 @@ def parse_pattern_text(text: str, source: str = "model") -> Pattern:
             raise ValueError(f"unsupported control {key!r}")
         controls[key] = val if key == "vowel" else float(val)
     return Pattern(mini=m.group("mini").strip(), controls=controls, source=source)
+
+
+# -- Parameter scenes (grammar v3, design-change-002) ------------------------
+
+
+@dataclass(frozen=True)
+class Trajectory:
+    """One modulated param: ``mod <param> <shape> <args...>``.
+
+    ``args`` are the shape's positional numbers (walk's trailing seed is
+    carried as a float, emitted as an int by ``%g``).
+    """
+
+    param: str
+    shape: str  # ramp | sine | walk | steps
+    args: tuple[float, ...]
+
+    def to_text(self) -> str:
+        return f"mod {self.param} {self.shape} " + " ".join(_fmt(a) for a in self.args)
+
+
+@dataclass(frozen=True)
+class Voice:
+    """A sustained source: synth/custom def + static controls + trajectories."""
+
+    source_name: str
+    n: int = 0
+    controls: dict[str, float | str] = field(default_factory=dict)
+    mods: tuple[Trajectory, ...] = ()
+
+    def to_text(self) -> str:
+        head = f"voice {self.source_name}" + (f":{self.n}" if self.n else "")
+        parts = [head]
+        for key in PARAM_ORDER:
+            if key in self.controls:
+                parts.append(f"# {key} {_fmt(self.controls[key])}")
+        parts += [m.to_text() for m in sorted(self.mods, key=lambda m: m.param)]
+        return " ".join(parts)
+
+
+@dataclass(frozen=True)
+class Scene:
+    """A parameter scene: 1..4 voices + an optional v2 event-line layer."""
+
+    voices: tuple[Voice, ...]
+    layer: Pattern | None = None
+    source: str = "unknown"  # sampled | model | mutation | unknown
+
+    def to_text(self) -> str:
+        parts = ["scene"] + [v.to_text() for v in self.voices]
+        if self.layer is not None:
+            parts.append(f"layer {self.layer.to_text()}")
+        return " ".join(parts)
+
+
+def parse_scene_text(text: str, source: str = "model") -> Scene:
+    """Parse a scene config into a Scene. Raises LarkError on invalid text."""
+    from .grammar import line_controls, mini_text, parse_scene
+
+    tree = parse_scene(text.strip())
+    voices: list[Voice] = []
+    layer = None
+    for node in tree.children:
+        if node.data == "scene_voice":
+            event = node.children[0]
+            name = str(event.children[0])
+            n = int(event.children[1]) if len(event.children) > 1 else 0
+            controls: dict[str, float | str] = {}
+            mods: list[Trajectory] = []
+            for child in node.children[1:]:
+                if child.data == "control_num":
+                    key, value = (str(t) for t in child.children)
+                    controls[key] = float(value)
+                elif child.data == "control_vowel":
+                    controls["vowel"] = str(child.children[0])
+                else:  # traj
+                    param, shape_node = child.children
+                    mods.append(
+                        Trajectory(
+                            param=str(param),
+                            shape=shape_node.data.removeprefix("shape_"),
+                            args=tuple(float(str(t)) for t in shape_node.children),
+                        )
+                    )
+            voices.append(Voice(name, n, controls, tuple(mods)))
+        else:  # scene_layer -> line
+            line = node.children[0]
+            layer = Pattern(
+                mini=mini_text(line.children[0]),
+                controls=line_controls(line),
+                source=source,
+            )
+    return Scene(voices=tuple(voices), layer=layer, source=source)

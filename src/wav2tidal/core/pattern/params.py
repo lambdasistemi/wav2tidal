@@ -325,3 +325,15 @@ def check_value(
 def midicps(midinote: float) -> float:
     """MIDI note -> Hz (SuperDirt: freq = (note + 60).midicps at octave 5)."""
     return 440.0 * 2.0 ** ((midinote - 69.0) / 12.0)
+
+
+# Continuous params that are nevertheless read only at trigger time (or
+# explicitly non-modulatable: dirt_gate declares gain \ir, "gain and
+# overgain can't" be modulated) — excluded from scene trajectories.
+_TRIGGER_ONLY = frozenset({"gain", "speed", "accelerate", "attack", "release"})
+
+
+def modulatable(name: str) -> bool:
+    """May ``name`` carry a scene trajectory (grammar v3)?"""
+    s = PARAMS.get(name)
+    return s is not None and s.kind in (CONTINUOUS, LOG) and name not in _TRIGGER_ONLY
