@@ -14,6 +14,23 @@
         pkgs = import nixpkgs { inherit system; };
         py = pkgs.python3;
 
+        # Python package set where `torch` IS the gfx1151 ROCm build, so every
+        # torch-dependent package (peft, trl, transformers) resolves to the SAME
+        # torch — avoids a two-torch buildEnv collision on bin/torchrun.
+        # Replicate nixpkgs' `torchWithRocm` overrides on the BASE torch (not via
+        # torchWithRocm, which is `self.torch.override …` and would recurse) plus
+        # the gfx1151 target. Same derivation as the prebuilt one -> cache hit.
+        pyRocm = py.override {
+          packageOverrides = final: prev: {
+            torch = prev.torch.override {
+              triton = final.triton-no-cuda;
+              rocmSupport = true;
+              cudaSupport = false;
+              gpuTargets = [ "gfx1151" ];
+            };
+          };
+        };
+
         # CPU dependencies — ingestion (R4), embeddings on CPU (R1), capture (R6).
         # Verified present in nixpkgs by the feature-001 research tasks.
         pythonEnv = py.withPackages (
@@ -59,12 +76,10 @@
         # gated behind `just smoke-gpu` (FR-018). May be a long/first build.
         devShells.training = pkgs.mkShell {
           packages = [
-            (py.withPackages (
+            (pyRocm.withPackages (
               ps: with ps; [
-                (torchWithRocm.override { gpuTargets = [ "gfx1151" ]; })
-                transformers
-                peft
-                trl
+                torch
+                transformers # Seq2SeqTrainer for ByT5 (no trl needed for seq2seq)
                 datasets
                 soundfile
                 librosa
