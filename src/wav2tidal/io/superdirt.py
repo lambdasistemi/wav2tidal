@@ -59,6 +59,8 @@ def build_rt_script(
         f'.sendMsg("/dirt/play", {_dirt_args(synth, params)}, \\orbit, 0);'
     )
     return f"""(
+s.options.numWireBufs = 512;    // superfm needs many interconnects
+s.options.memSize = 131072;     // GVerb defs (superprimes/...) need RT memory
 s.waitForBoot {{
     ~dirt = SuperDirt(2, s);
     ~dirt.loadSynthDefs;
@@ -199,6 +201,8 @@ def build_rt_batch_script(
         blocks.append("\n        ".join(lines))
     body = "\n        ".join(blocks)
     return f"""(
+s.options.numWireBufs = 512;    // superfm needs many interconnects
+s.options.memSize = 131072;     // GVerb defs (superprimes/...) need RT memory
 s.waitForBoot {{
     ~dirt = SuperDirt(2, s);
     ~dirt.loadSynthDefs;
@@ -310,7 +314,8 @@ Score.recordNRT(
     ],
     "{osc_path}", "{out_wav}", nil,
     {sr}, "WAV", "int16",
-    ServerOptions.new.numOutputBusChannels_(2), duration: {_fmt(float(seconds))},
+    ServerOptions.new.numOutputBusChannels_(2)
+        .numWireBufs_(512).memSize_(131072), duration: {_fmt(float(seconds))},
     action: {{ "WAV2TIDAL_NRT_OK".postln; 0.exit }}
 );
 )
@@ -378,7 +383,8 @@ Score.recordNRT(
     ],
     "{osc_path}", "{out_wav}", nil,
     {sr}, "WAV", "int16",
-    ServerOptions.new.numOutputBusChannels_(2), duration: {_fmt(float(seconds))},
+    ServerOptions.new.numOutputBusChannels_(2)
+        .numWireBufs_(512).memSize_(131072), duration: {_fmt(float(seconds))},
     action: {{ "WAV2TIDAL_NRT_OK".postln; 0.exit }}
 );
 )
@@ -555,7 +561,8 @@ Score.recordNRT(
     ],
     "{osc_path}", "{out_wav}", nil,
     {sr}, "WAV", "int16",
-    ServerOptions.new.numOutputBusChannels_(2), duration: {_fmt(float(plan.duration))},
+    ServerOptions.new.numOutputBusChannels_(2)
+        .numWireBufs_(512).memSize_(131072), duration: {_fmt(float(plan.duration))},
     action: {{ "WAV2TIDAL_NRT_OK".postln; 0.exit }}
 );
 )
@@ -718,6 +725,8 @@ def build_rt_scene_batch_script(
         blocks.append("\n        ".join(lines))
     body = "\n        ".join(blocks)
     return f"""(
+s.options.numWireBufs = 512;    // superfm needs many interconnects
+s.options.memSize = 131072;     // GVerb defs (superprimes/...) need RT memory
 s.waitForBoot {{
     ~dirt = SuperDirt(2, s);
     ~dirt.loadSynthDefs;
