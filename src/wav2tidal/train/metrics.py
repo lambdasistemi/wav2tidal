@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from ..core.pattern.grammar import LarkError
 from ..core.pattern.model import parse_pattern_text, parse_scene_text
+from ..core.pattern.repair import repair_config
 from ..core.pattern.validate import Sources, validate, validate_scene
 
 
@@ -43,16 +44,19 @@ def validity_report(
         raise ValueError("outputs and references must be same non-zero length")
     grammar = 0
     valid = 0
+    repaired = 0
     exact = 0
     for out, ref in zip(outputs, references, strict=True):
         g, v = check_output(out, sources)
         grammar += g
         valid += v
+        repaired += v or (repair_config(out, sources) is not None)
         exact += out.strip() == ref.strip()
     n = len(outputs)
     return {
         "n": n,
         "grammar_valid": grammar / n,
         "validator_valid": valid / n,
+        "repaired_valid": repaired / n,
         "exact_match": exact / n,
     }

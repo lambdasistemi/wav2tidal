@@ -84,3 +84,35 @@ def test_validity_report_aggregates():
 def test_validity_report_rejects_mismatched_lengths():
     with pytest.raises(ValueError):
         validity_report(["a"], [], SOURCES)
+
+
+def test_repair_truncates_and_dedupes_scene():
+    from wav2tidal.core.pattern.model import parse_scene_text
+    from wav2tidal.core.pattern.repair import repair_config
+
+    src = Sources(banks={"bd": 4})
+    text = "scene " + " ".join(
+        "voice supersaw # note -12 mod cutoff ramp 200 2000 mod cutoff ramp 300 400"
+        for _ in range(6)
+    )
+    fixed = repair_config(text, src)
+    assert fixed is not None
+    scene = parse_scene_text(fixed)
+    assert len(scene.voices) == 4
+    assert all(len(v.mods) == 1 for v in scene.voices)
+
+
+def test_repair_clamps_line_controls():
+    from wav2tidal.core.pattern.repair import repair_config
+
+    src = Sources(banks={"bd": 4})
+    fixed = repair_config('d1 $ s "bd" # cutoff 99999 # gain 0.1', src)
+    assert fixed is not None and "cutoff 12000" in fixed and "gain 0.5" in fixed
+
+
+def test_repair_gives_up_on_garbage():
+    from wav2tidal.core.pattern.repair import repair_config
+
+    src = Sources(banks={"bd": 4})
+    assert repair_config("play some jazz", src) is None
+    assert repair_config('d1 $ s "nosuchbank"', src) is None
