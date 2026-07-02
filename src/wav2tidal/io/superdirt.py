@@ -107,13 +107,7 @@ def rt_render(
         with tempfile.TemporaryDirectory() as td:
             script = Path(td) / "rt.scd"
             script.write_text(build_rt_script(synth, params, seconds, str(out_wav)))
-            proc = subprocess.run(
-                [sclang, str(script)],
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                env=env,
-            )
+            proc = _run_sclang([sclang, str(script)], timeout, env)
     finally:
         if routed:
             _unload_null_sink()
@@ -257,13 +251,7 @@ def rt_render_batch(
                     norm, banks_dir=str(banks_dir) if banks_dir else None
                 )
             )
-            proc = subprocess.run(
-                [sclang, str(script)],
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                env=env,
-            )
+            proc = _run_sclang([sclang, str(script)], timeout, env)
     finally:
         if routed:
             _unload_null_sink()
@@ -313,7 +301,7 @@ def build_nrt_events_script(
     rows.append(f"[{_fmt(float(seconds))}, [\\c_set, 0, 0]]")
     score = ",\n        ".join(rows)
     return f"""(
-~dirt = (numChannels: 2);
+~dirt = 0 ! 2; // .numChannels -> 2 (an Event can't fake a real method)
 {loads}
 Score.program = Server.program;
 Score.recordNRT(
@@ -353,12 +341,7 @@ def nrt_render_events(
                 events, seconds, str(out_wav), str(osc), synthdef_files, sr, seed
             )
         )
-        proc = subprocess.run(
-            [sclang, str(script)],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
+        proc = _run_sclang([sclang, str(script)], timeout)
     if "WAV2TIDAL_NRT_OK" not in proc.stdout or not out_wav.exists():
         raise RuntimeError(
             f"NRT events render failed\nstdout tail:\n{proc.stdout[-800:]}"
@@ -384,7 +367,7 @@ def build_nrt_script(
     loads = "\n".join(f'"{f}".load;' for f in synthdef_files)
     args = " ".join(f"\\{k}, {_fmt(v)}," for k, v in sorted(params.items()))
     return f"""(
-~dirt = (numChannels: 2);
+~dirt = 0 ! 2; // .numChannels -> 2 (an Event can't fake a real method)
 {loads}
 Score.program = Server.program;
 Score.recordNRT(
@@ -400,6 +383,32 @@ Score.recordNRT(
 );
 )
 """
+
+
+def _run_sclang(
+    cmd: list[str], timeout: float, env: dict | None = None
+) -> subprocess.CompletedProcess:
+    """Run sclang in its own process group and kill the WHOLE group on
+    timeout — the wrapper is a shell script, so a plain kill orphans
+    sclang/scsynth, which then hold the SuperDirt UDP port hostage."""
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=env,
+        start_new_session=True,
+    )
+    try:
+        out, err = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        os.killpg(proc.pid, 9)
+        out, err = proc.communicate()
+        raise RuntimeError(
+            f"sclang timed out after {timeout:.0f}s (process group killed)"
+            f"\nstdout tail:\n{out[-800:]}"
+        ) from None
+    return subprocess.CompletedProcess(cmd, proc.returncode, out, err)
 
 
 def _resolve_sclang(sclang: str | None) -> str:
@@ -447,14 +456,335 @@ def nrt_render(
                 synth, params, seconds, str(out_wav), str(osc), synthdef_files, sr
             )
         )
-        proc = subprocess.run(
-            [sclang, str(script)],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
+        proc = _run_sclang([sclang, str(script)], timeout)
     if "WAV2TIDAL_NRT_OK" not in proc.stdout or not out_wav.exists():
         raise RuntimeError(
             f"NRT render failed for {synth}\nstdout tail:\n{proc.stdout[-800:]}"
         )
     return out_wav
+
+
+# -- Scene rendering (US2-scene-2, issue #29) ---------------------------------
+#
+# Scenes spawn their own voice graphs (known node ids) so trajectories can
+# n_set running synths; per-voice dirt_* FX are chained in module order
+# (R7 tier-1). Rendered output is peak-normalized (design-change-002: the
+# loudness fix) so descriptors are level-comparable across configs.
+
+_NRT_BASE_NODE = 2000
+_NRT_BASE_BUS = 16  # after the 2 hardware output channels; NRT has 1024
+_NORM_PEAK = 0.891  # -1 dBFS
+
+
+def _flatten_plan(plan) -> tuple[list, dict[str, int]]:
+    """Assign node ids in spawn order; returns (nodes, ref -> id)."""
+    nodes = []
+    ids: dict[str, int] = {}
+    nid = _NRT_BASE_NODE
+    for i, chain in enumerate(plan.chains):
+        for node in chain:
+            ids[node.ref] = nid
+            nodes.append((nid, i, node))
+            nid += 1
+        ids[f"v{i}_route"] = nid
+        nid += 1
+    ids["g_reverb"] = nid
+    ids["g_delay"] = nid + 1
+    return nodes, ids
+
+
+def _def_name(node) -> str:
+    return f"{node.synth}2" if node.is_fx else node.synth
+
+
+def build_nrt_scene_script(
+    plan,
+    out_wav: str,
+    osc_path: str,
+    synthdef_files: list[str],
+    sr: int = 44100,
+    seed: int = 1917,
+) -> str:
+    """Pure: sclang source that NRT-renders a scene plan.
+
+    Each voice runs on a private bus through its FX chain (addToTail keeps
+    creation order = execution order), then a ``w2t_route`` copier sums it
+    to the output. Trajectories are ``n_set`` score rows. Deterministic:
+    RandSeed at t=0 + fixed node/bus allocation.
+    """
+    loads = "\n".join(f'"{f}".load;' for f in synthdef_files)
+    nodes, ids = _flatten_plan(plan)
+    defs = sorted({_def_name(n) for _, _, n in nodes})
+    rows = [
+        "[0.0, [\\d_recv, "
+        "SynthDef(\\w2t_seed, { |seed| RandSeed.ir(1, seed); "
+        "FreeSelf.kr(Impulse.kr(0)) }).asBytes]]",
+        "[0.0, [\\d_recv, "
+        "SynthDef(\\w2t_route, { |bus, out = 0| "
+        "Out.ar(out, In.ar(bus, 2)) }).asBytes]]",
+    ]
+    rows += [f"[0.0, [\\d_recv, SynthDescLib.global[\\{d}].def.asBytes]]" for d in defs]
+    rows.append(f"[0.0, [\\s_new, \\w2t_seed, 999, 0, 0, \\seed, {int(seed)}]]")
+    for nid, i, node in nodes:
+        bus = _NRT_BASE_BUS + 2 * i
+        args = " ".join(
+            f"\\{k}, {_fmt(v)}," for k, v in sorted({**node.params, "out": bus}.items())
+        )
+        rows.append(f"[0.0, [\\s_new, \\{_def_name(node)}, {nid}, 1, 0, {args}]]")
+    for i in range(len(plan.chains)):
+        bus = _NRT_BASE_BUS + 2 * i
+        rows.append(
+            f"[0.0, [\\s_new, \\w2t_route, {ids[f'v{i}_route']}, 1, 0,"
+            f" \\bus, {bus}, \\out, 0]]"
+        )
+    for t, ref, arg, value in plan.automation:
+        if ref in ("g_reverb", "g_delay"):
+            continue  # global FX are RT-only; scene_route sent us here NRT-clean
+        rows.append(
+            f"[{_fmt(float(t))}, [\\n_set, {ids[ref]}, \\{arg}, {_fmt(value)}]]"
+        )
+    rows.append(f"[{_fmt(float(plan.duration))}, [\\c_set, 0, 0]]")
+    score = ",\n        ".join(rows)
+    return f"""(
+~dirt = 0 ! 2; // .numChannels -> 2 (an Event can't fake a real method)
+{loads}
+Score.program = Server.program;
+Score.recordNRT(
+    [
+        {score}
+    ],
+    "{osc_path}", "{out_wav}", nil,
+    {sr}, "WAV", "int16",
+    ServerOptions.new.numOutputBusChannels_(2), duration: {_fmt(float(plan.duration))},
+    action: {{ "WAV2TIDAL_NRT_OK".postln; 0.exit }}
+);
+)
+"""
+
+
+def _scene_synthdef_files() -> list[str]:
+    quark = os.environ.get(_QUARK_ENV)
+    if not quark:
+        raise RuntimeError(f"set ${_QUARK_ENV} to the SuperDirt quark root")
+    files = [
+        Path(quark) / "library" / "default-synths-extra.scd",
+        Path(quark) / "synths" / "core-synths.scd",  # dirt_* effect defs
+    ]
+    for f in files:
+        if not f.exists():
+            raise RuntimeError(f"SuperDirt synthdef file not found at {f}")
+    return [str(f) for f in files]
+
+
+def _normalize_wav(path: Path, peak: float = _NORM_PEAK) -> None:
+    import numpy as np
+    import soundfile as sf
+
+    y, sr = sf.read(str(path), dtype="float64")
+    m = float(np.abs(y).max())
+    if m > 0:
+        y = y * (peak / m)
+    # PCM_24, not FLOAT: libsndfile stamps float WAVs with a timestamped
+    # PEAK chunk, which would break byte-determinism of NRT renders
+    sf.write(str(path), y, sr, subtype="PCM_24")
+
+
+def nrt_render_scene(
+    plan,
+    out_wav: str | Path,
+    *,
+    sr: int = 44100,
+    seed: int = 1917,
+    sclang: str | None = None,
+    synthdef_files: list[str] | None = None,
+    normalize: float | None = _NORM_PEAK,
+    timeout: float = 180.0,
+) -> Path:
+    """Render a scene plan via NRT (deterministic) and peak-normalize."""
+    sclang = _resolve_sclang(sclang)
+    synthdef_files = synthdef_files or _scene_synthdef_files()
+    out_wav = Path(out_wav)
+    out_wav.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory() as td:
+        script = Path(td) / "scene.scd"
+        osc = Path(td) / "score.osc"
+        script.write_text(
+            build_nrt_scene_script(
+                plan, str(out_wav), str(osc), synthdef_files, sr, seed
+            )
+        )
+        proc = _run_sclang([sclang, str(script)], timeout)
+    if "WAV2TIDAL_NRT_OK" not in proc.stdout or not out_wav.exists():
+        raise RuntimeError(
+            f"NRT scene render failed\nstdout tail:\n{proc.stdout[-800:]}"
+        )
+    if normalize:
+        _normalize_wav(out_wav, normalize)
+    return out_wav
+
+
+def build_rt_scene_batch_script(
+    jobs: list[tuple[str, object]],
+    port: int = 57120,
+    banks_dir: str | None = None,
+) -> str:
+    """Pure: sclang source rendering scene plans through one booted SuperDirt.
+
+    Voice chains spawn inside the orbit group writing to private buses,
+    routed onto the orbit dry bus (so a sample layer via /dirt/play shares
+    the same space). Global reverb/delay are OUR per-job instances with
+    creation args (the orbit-owned paused ones never sound — R7 addendum),
+    freed per job so delay lines start empty. Trajectories are timed
+    ``set`` lines in the Routine.
+    """
+    load_samples = f'~dirt.loadSoundFiles("{banks_dir}/*");\n    ' if banks_dir else ""
+    blocks = []
+    for j, (out_wav, plan) in enumerate(jobs):
+        lines = []
+        n_voices = len(plan.chains)
+        for i in range(n_voices):
+            lines.append(f"~b{i} = Bus.audio(s, 2);")
+        g = dict(plan.globals_static)
+        needs_reverb = any(k in g for k in ("room", "size")) or any(
+            ref == "g_reverb" for _, ref, _, _ in plan.automation
+        )
+        needs_delay = any(k in g for k in ("delaytime", "delayfeedback")) or any(
+            ref == "g_delay" for _, ref, _, _ in plan.automation
+        )
+        if needs_reverb:
+            args = ", ".join(f"\\{k}, {_fmt(g[k])}" for k in ("room", "size") if k in g)
+            lines.append(
+                '~g_reverb = Synth("dirt_reverb" ++ ~dirt.numChannels, '
+                f"[\\dryBus, ~orbit.dryBus.index, \\effectBus, "
+                f"~orbit.globalEffectBus.index{', ' + args if args else ''}], "
+                "~orbit.group, \\addAfter);"
+            )
+        if needs_delay:
+            args = ", ".join(
+                f"\\{k}, {_fmt(g[k])}" for k in ("delaytime", "delayfeedback") if k in g
+            )
+            lines.append(
+                '~g_delay = Synth("dirt_delay" ++ ~dirt.numChannels, '
+                f"[\\dryBus, ~orbit.dryBus.index, \\effectBus, "
+                f"~orbit.globalEffectBus.index, \\delaySend, 1, \\delayAmp, 1"
+                f"{', ' + args if args else ''}], ~orbit.group, \\addAfter);"
+            )
+        for i, chain in enumerate(plan.chains):
+            for node in chain:
+                args = " ".join(
+                    f"\\{k}, {_fmt(v)}," for k, v in sorted(node.params.items())
+                )
+                lines.append(
+                    f'~n_{node.ref} = Synth.tail(~orbit.group, "{_def_name(node)}",'
+                    f" [{args} \\out, ~b{i}.index]);"
+                )
+            lines.append(
+                f"~n_v{i}_route = Synth.tail(~orbit.group, \\w2t_route,"
+                f" [\\bus, ~b{i}.index, \\out, ~orbit.dryBus.index]);"
+            )
+        lines.append(f's.record("{out_wav}", numChannels: 2);')
+        lines.append("s.sync;")
+
+        timeline: list[tuple[float, str]] = []
+        for t, ref, arg, value in plan.automation:
+            var = f"~{ref}" if ref.startswith("g_") else f"~n_{ref}"
+            timeline.append((t, f"{var}.set(\\{arg}, {_fmt(value)});"))
+        for t, sound, params in plan.layer_events:
+            play_args = _dirt_args(sound, params)
+            timeline.append(
+                (t, f'addr.sendMsg("/dirt/play", {play_args}, \\orbit, 0);')
+            )
+        timeline.sort(key=lambda x: x[0])
+        t_now = 0.0
+        for t, line in timeline:
+            if t > t_now:
+                lines.append(f"{_fmt(float(t - t_now))}.wait;")
+                t_now = t
+            lines.append(line)
+        if plan.duration > t_now:
+            lines.append(f"{_fmt(float(plan.duration - t_now))}.wait;")
+        lines.append("s.stopRecording;")
+        for i, chain in enumerate(plan.chains):
+            for node in chain:
+                lines.append(f"~n_{node.ref}.free;")
+            lines.append(f"~n_v{i}_route.free;")
+            lines.append(f"~b{i}.free;")
+        if needs_reverb:
+            lines.append("~g_reverb.free;")
+        if needs_delay:
+            lines.append("~g_delay.free;")
+        lines.append("0.8.wait;")
+        lines.append(f'"WAV2TIDAL_JOB_{j}_DONE".postln;')
+        blocks.append("\n        ".join(lines))
+    body = "\n        ".join(blocks)
+    return f"""(
+s.waitForBoot {{
+    ~dirt = SuperDirt(2, s);
+    ~dirt.loadSynthDefs;
+    {load_samples}s.sync;
+    ~dirt.start({port}, [0]);
+    s.sync;
+    ~orbit = ~dirt.orbits[0];
+    // monitor/rms are created paused and resumed only by /dirt/play
+    // events; a pure-drone job has none — resume the always-run FX
+    ~orbit.globalEffects.do {{ |fx| if(fx.alwaysRun) {{ fx.resume }} }};
+    SynthDef(\\w2t_route, {{ |bus, out = 0| Out.ar(out, In.ar(bus, 2)) }}).add;
+    s.sync;
+    "WAV2TIDAL_RT_READY".postln;
+    Routine({{
+        var addr = NetAddr("127.0.0.1", {port});
+        {body}
+        "WAV2TIDAL_RT_OK".postln;
+        0.exit;
+    }}).play;
+}};
+)
+"""
+
+
+def rt_render_scene_batch(
+    jobs: list[tuple[str | Path, object]],
+    *,
+    banks_dir: str | Path | None = None,
+    sclang: str | None = None,
+    sink: str | None = "w2t_rt",
+    normalize: float | None = _NORM_PEAK,
+    timeout: float | None = None,
+) -> list[Path]:
+    """Render scene plans through ONE booted SuperDirt; peak-normalize."""
+    sclang = _resolve_sclang(sclang)
+    outs = [Path(o) for o, _ in jobs]
+    for o in outs:
+        o.parent.mkdir(parents=True, exist_ok=True)
+    norm = [(str(o), plan) for o, (_, plan) in zip(outs, jobs, strict=True)]
+    if timeout is None:
+        total = sum(plan.duration for _, plan in jobs)
+        timeout = 90.0 + 1.5 * (total + 2.5 * len(jobs))
+
+    env = dict(os.environ)
+    routed = _make_null_sink(sink) if sink else False
+    if routed:
+        env["SC_JACK_DEFAULT_OUTPUTS"] = f"{sink}:playback_FL,{sink}:playback_FR"
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            script = Path(td) / "rt_scenes.scd"
+            script.write_text(
+                build_rt_scene_batch_script(
+                    norm, banks_dir=str(banks_dir) if banks_dir else None
+                )
+            )
+            proc = _run_sclang([sclang, str(script)], timeout, env)
+    finally:
+        if routed:
+            _unload_null_sink()
+
+    missing = [str(o) for o in outs if not o.exists()]
+    if "WAV2TIDAL_RT_OK" not in proc.stdout or missing:
+        raise RuntimeError(
+            f"RT scene batch failed ({len(missing)} of {len(outs)} outputs missing)"
+            f"\nstdout tail:\n{proc.stdout[-800:]}"
+        )
+    if normalize:
+        for o in outs:
+            _normalize_wav(o, normalize)
+    return outs

@@ -132,9 +132,67 @@ def main() -> int:
             print("FAIL: global delay tail missing in RT batch", file=sys.stderr)
             return 1
 
+        # Stage 5 — parameter scenes (issue #29): NRT scene automation is
+        # byte-deterministic and the cutoff ramp audibly sweeps via RT.
+        import librosa
+
+        from wav2tidal.core.pattern.dirt import scene_plan
+        from wav2tidal.core.pattern.model import Scene, Trajectory, Voice
+        from wav2tidal.core.pattern.validate import Sources
+        from wav2tidal.io.superdirt import nrt_render_scene, rt_render_scene_batch
+
+        scene = Scene(
+            voices=(
+                Voice(
+                    "supersaw",
+                    controls={"note": -12.0},
+                    mods=(Trajectory("cutoff", "ramp", (300.0, 6000.0)),),
+                ),
+            )
+        )
+        plan = scene_plan(scene, Sources(), 4.0, 0.5, 0.1)
+        sc_a, sc_b = Path(td) / "sc_a.wav", Path(td) / "sc_b.wav"
+        try:
+            nrt_render_scene(plan, sc_a)
+            nrt_render_scene(plan, sc_b)
+        except RuntimeError as e:
+            print(f"FAIL (nrt scene): {e}", file=sys.stderr)
+            return 1
+        if _md5(sc_a) != _md5(sc_b):
+            print("FAIL: NRT scene automation not deterministic", file=sys.stderr)
+            return 1
+        rt_scene = Scene(
+            voices=(
+                Voice(
+                    "supersaw",
+                    controls={"note": -12.0, "room": 0.15},
+                    mods=(Trajectory("cutoff", "ramp", (300.0, 6000.0)),),
+                ),
+            )
+        )
+        sc_rt = Path(td) / "sc_rt.wav"
+        try:
+            rt_render_scene_batch(
+                [(sc_rt, scene_plan(rt_scene, Sources(), 5.0, 0.5, 0.1))]
+            )
+        except RuntimeError as e:
+            print(f"FAIL (rt scene): {e}", file=sys.stderr)
+            return 1
+        ysc, ssr = sf.read(str(sc_rt))
+        mono = (ysc.mean(axis=1) if ysc.ndim > 1 else ysc).astype("float32")
+        cent = librosa.feature.spectral_centroid(y=mono, sr=ssr)[0]
+        m = len(cent)
+        c0, c1 = float(cent[: m // 5].mean()), float(
+            cent[3 * m // 5 : 4 * m // 5].mean()
+        )
+        print(f"  scenes: NRT deterministic OK; RT sweep centroid {c0:.0f}->{c1:.0f}Hz")
+        if abs(ysc).max() < 0.1 or c1 < 1.3 * c0:
+            print("FAIL: RT scene silent or cutoff sweep not audible", file=sys.stderr)
+            return 1
+
     print(
-        "PASS: NRT (deterministic, multi-event) + RT capture"
-        " + batch with global FX all work."
+        "PASS: NRT (deterministic, multi-event, scenes) + RT capture"
+        " + batches with global FX + scene automation all work."
     )
     return 0
 
