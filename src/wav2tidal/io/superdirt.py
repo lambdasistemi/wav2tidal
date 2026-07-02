@@ -29,11 +29,13 @@ _SCLANG_ENV = "WAV2TIDAL_SCLANG"
 _QUARK_ENV = "WAV2TIDAL_SUPERDIRT_QUARK"
 
 
-def _fmt(v: float | int) -> str:
+def _fmt(v: float | int | str) -> str:
+    if isinstance(v, str):  # e.g. vowel "a" (grammar v2)
+        return f'"{v}"'
     return f"{v:g}" if isinstance(v, float) else str(v)
 
 
-def _dirt_args(synth: str, params: dict[str, float]) -> str:
+def _dirt_args(synth: str, params: dict[str, float | str]) -> str:
     parts = [f'\\s, "{synth}"']
     for k, v in sorted(params.items()):
         parts.append(f"\\{k}, {_fmt(v)}")
@@ -42,7 +44,7 @@ def _dirt_args(synth: str, params: dict[str, float]) -> str:
 
 def build_rt_script(
     synth: str,
-    params: dict[str, float],
+    params: dict[str, float | str],
     seconds: float,
     out_wav: str,
     port: int = 57120,
@@ -79,7 +81,7 @@ s.waitForBoot {{
 
 def rt_render(
     synth: str,
-    params: dict[str, float],
+    params: dict[str, float | str],
     seconds: float,
     out_wav: str | Path,
     *,
@@ -143,7 +145,7 @@ def _unload_null_sink() -> None:
 
 def build_nrt_script(
     synth: str,
-    params: dict[str, float],
+    params: dict[str, float | str],
     seconds: float,
     out_wav: str,
     osc_path: str,
@@ -200,7 +202,7 @@ def _default_synthdef_files() -> list[str]:
 
 def nrt_render(
     synth: str,
-    params: dict[str, float],
+    params: dict[str, float | str],
     seconds: float,
     out_wav: str | Path,
     *,
