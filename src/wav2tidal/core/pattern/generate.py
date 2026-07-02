@@ -17,8 +17,16 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass
 
-from .model import CONTROL_ORDER, Pattern
-from .params import EVENT_FX, SYNTHS, effective_range, spec
+from .model import CONTROL_ORDER, Pattern, Scene, Trajectory, Voice
+from .params import (
+    EVENT_FX,
+    GLOBAL_FX,
+    SYNTHS,
+    effective_range,
+    modulatable,
+    spec,
+)
+from .shapes import sample_args
 from .validate import Sources
 
 
@@ -278,3 +286,137 @@ def _refs(mini: str) -> list[tuple[str, int]]:
     from .grammar import bank_refs, parse_mini
 
     return bank_refs(parse_mini(mini))
+
+
+# -- Parameter scenes (grammar v3, design-change-002) ------------------------
+
+
+@dataclass(frozen=True)
+class SceneDiversity:
+    """Sampling knobs for the scene space (bounded by table + shapes)."""
+
+    n_voices_choices: tuple[int, ...] = (1, 2, 2, 3, 3, 4)
+    note_prob: float = 0.9
+    drone_note_range: tuple[float, float] = (-24.0, 7.0)  # drones sit low
+    selector_prob: float = 0.15  # name:n variants
+    n_static_choices: tuple[int, ...] = (0, 1, 1, 2)
+    n_mods_choices: tuple[int, ...] = (1, 1, 2, 2, 3)
+    shape_choices: tuple[str, ...] = ("ramp", "sine", "sine", "walk", "walk", "steps")
+    global_mod_prob: float = 0.35  # one orbit-FX trajectory somewhere
+    layer_prob: float = 0.3  # rhythmic sample layer (needs banks)
+
+
+_GLOBAL_NAMES = tuple(s.name for s in GLOBAL_FX)
+
+
+def _modulatable(source: str | None) -> list[str]:
+    """Params a voice on ``source`` may modulate (no globals) — the
+    table's ``modulatable`` rule over core + event-FX + the synth's own."""
+    pool = [n for n in ("note", "pan") if modulatable(n)]
+    pool += [s.name for s in EVENT_FX if modulatable(s.name)]
+    if source is not None:
+        pool += [n for n in sorted(SYNTHS[source]) if modulatable(n)]
+    return list(dict.fromkeys(pool))  # e.g. resonance is both FX and synth param
+
+
+def _sample_traj(
+    rng: random.Random, param: str, source: str | None, div: SceneDiversity
+):
+    lo, hi = effective_range(param, {source} if source else set())
+    shape = rng.choice(div.shape_choices)
+    return Trajectory(param=param, shape=shape, args=sample_args(rng, shape, lo, hi))
+
+
+def _sample_voice(rng: random.Random, name: str, div: SceneDiversity) -> Voice:
+    source = name if name in SYNTHS else None  # custom defs: core+FX only
+    n = rng.randrange(_GEN_MAX_N + 1) if rng.random() < div.selector_prob else 0
+    controls: dict[str, float | str] = {}
+    if rng.random() < div.note_prob:
+        controls["note"] = spec("note").sample(rng, *div.drone_note_range)
+    static_pool = list(
+        dict.fromkeys(
+            p
+            for p in (
+                _EVENT_FX_NAMES + (tuple(sorted(SYNTHS[source])) if source else ())
+            )
+            if p not in controls
+        )
+    )
+    k = min(rng.choice(div.n_static_choices), len(static_pool))
+    for p in rng.sample(static_pool, k=k):
+        controls[p] = _sample_value(rng, p, {name})
+    mod_pool = [p for p in _modulatable(source) if p not in controls]
+    k = min(rng.choice(div.n_mods_choices), len(mod_pool))
+    mods = tuple(_sample_traj(rng, p, source, div) for p in rng.sample(mod_pool, k=k))
+    return Voice(source_name=name, n=n, controls=controls, mods=mods)
+
+
+def generate_scene(
+    rng: random.Random, sources: Sources, div: SceneDiversity | None = None
+) -> Scene:
+    """Sample a valid-by-construction parameter scene (grammar v3).
+
+    1..4 drone voices with static params + shaped trajectories, optionally
+    one global-FX trajectory, optionally a rhythmic sample layer.
+    """
+    div = div or SceneDiversity()
+    pool = sorted(sources.synths | sources.custom)
+    if not pool:
+        raise ValueError("cannot generate a scene with no synth/custom sources")
+    n = rng.choice(div.n_voices_choices)
+    voices = [_sample_voice(rng, rng.choice(pool), div) for _ in range(n)]
+    if rng.random() < div.global_mod_prob:
+        i = rng.randrange(len(voices))
+        v = voices[i]
+        used = set(v.controls) | {m.param for m in v.mods}
+        candidates = [g for g in _GLOBAL_NAMES if g not in used]
+        if candidates and len(v.mods) < 4:
+            src = v.source_name if v.source_name in SYNTHS else None
+            traj = _sample_traj(rng, rng.choice(candidates), src, div)
+            voices[i] = Voice(v.source_name, v.n, v.controls, v.mods + (traj,))
+    layer = None
+    if sources.banks and rng.random() < div.layer_prob:
+        layer = generate_pattern(rng, sources.banks)
+    return Scene(voices=tuple(voices), layer=layer, source="sampled")
+
+
+def mutate_scene(
+    rng: random.Random,
+    scene: Scene,
+    sources: Sources,
+    div: SceneDiversity | None = None,
+) -> Scene:
+    """One small validity-preserving mutation in the scene space (FR-022):
+    resample a trajectory's args, swap its shape, tweak a static control,
+    or nudge a voice's note."""
+    div = div or SceneDiversity()
+    voices = list(scene.voices)
+    i = rng.randrange(len(voices))
+    v = voices[i]
+    src = v.source_name if v.source_name in SYNTHS else None
+    roll = rng.random()
+
+    if roll < 0.5 and v.mods:  # resample or reshape one trajectory
+        j = rng.randrange(len(v.mods))
+        mods = list(v.mods)
+        mods[j] = _sample_traj(rng, mods[j].param, src, div)
+        voices[i] = Voice(v.source_name, v.n, v.controls, tuple(mods))
+    elif roll < 0.75 and v.controls:  # tweak one static control
+        controls = dict(v.controls)
+        key = rng.choice(sorted(controls))
+        controls[key] = (
+            spec("note").sample(rng, *div.drone_note_range)
+            if key == "note"
+            else _sample_value(rng, key, {v.source_name})
+        )
+        voices[i] = Voice(v.source_name, v.n, controls, v.mods)
+    elif "note" not in {m.param for m in v.mods}:  # nudge the note (or set one)
+        controls = dict(v.controls)
+        controls["note"] = spec("note").sample(rng, *div.drone_note_range)
+        voices[i] = Voice(v.source_name, v.n, controls, v.mods)
+    elif v.mods:  # note is modulated: resample that trajectory instead
+        mods = list(v.mods)
+        j = rng.randrange(len(mods))
+        mods[j] = _sample_traj(rng, mods[j].param, src, div)
+        voices[i] = Voice(v.source_name, v.n, v.controls, tuple(mods))
+    return Scene(tuple(voices), scene.layer, source="mutation")

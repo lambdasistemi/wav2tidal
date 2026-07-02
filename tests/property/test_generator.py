@@ -90,3 +90,58 @@ def test_generate_config_without_sources_raises():
 
     with pytest.raises(ValueError):
         generate_config(random.Random(0), Sources(banks={}, synths=frozenset()))
+
+
+# -- grammar-v3 parameter scenes ----------------------------------------------
+
+
+def test_generated_scenes_always_valid():
+    from wav2tidal.core.pattern.generate import generate_scene
+    from wav2tidal.core.pattern.model import parse_scene_text
+    from wav2tidal.core.pattern.validate import validate_scene
+
+    rng = random.Random(0)
+    for _ in range(300):
+        s = generate_scene(rng, SOURCES)
+        v = validate_scene(s, SOURCES)
+        assert v.valid, (s.to_text(), v.reason)
+        assert parse_scene_text(s.to_text()).to_text() == s.to_text()
+
+
+def test_scene_generation_is_deterministic_from_seed():
+    from wav2tidal.core.pattern.generate import generate_scene
+
+    a = [generate_scene(random.Random(5), SOURCES) for _ in range(10)]
+    b = [generate_scene(random.Random(5), SOURCES) for _ in range(10)]
+    assert [s.to_text() for s in a] == [s.to_text() for s in b]
+
+
+def test_scene_space_covers_shapes_and_layers():
+    from wav2tidal.core.pattern.generate import generate_scene
+
+    rng = random.Random(1)
+    texts = " ".join(generate_scene(rng, SOURCES).to_text() for _ in range(200))
+    for token in ("ramp", "sine", "walk", "steps", "layer", "mod room"):
+        assert token in texts, token
+
+
+def test_scene_mutations_stay_valid():
+    from wav2tidal.core.pattern.generate import generate_scene, mutate_scene
+    from wav2tidal.core.pattern.validate import validate_scene
+
+    rng = random.Random(2)
+    s = generate_scene(rng, SOURCES)
+    for _ in range(300):
+        s = mutate_scene(rng, s, SOURCES)
+        v = validate_scene(s, SOURCES)
+        assert v.valid, (s.to_text(), v.reason)
+    assert s.source == "mutation"
+
+
+def test_generate_scene_without_synths_raises():
+    import pytest
+
+    from wav2tidal.core.pattern.generate import generate_scene
+
+    with pytest.raises(ValueError):
+        generate_scene(random.Random(0), Sources(banks={"bd": 4}, synths=frozenset()))
