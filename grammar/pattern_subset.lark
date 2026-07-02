@@ -1,18 +1,51 @@
-// wav2tidal pattern-subset grammar (FR-008) — the single source of truth
-// shared by the procedural generator, the validator, and the constrained
-// decoder. This is a SCAFFOLD placeholder; the full subset is authored in
-// task T009 (see specs/001-corpus-to-live-pipeline/research.md R5 for the
-// verified construct list and contracts/interfaces.md for the surface).
+// wav2tidal pattern-subset grammar (FR-008), v1.0.0.
 //
-// version: 0.0.0-scaffold
-// bounds (to be enforced by the validator, T029): max_events_per_cycle,
-//         max_nesting_depth — defined in configs, not here.
+// The single source of truth for the mini-notation subset shared by the
+// procedural generator (T030), the validator (T029), and — later — the
+// grammar-constrained decoder (T034). Never fork it: all three parse or
+// emit exactly this language.
+//
+// Scope (v1): a single-channel sequence of sample events over one cycle,
+// built from ingested SuperDirt banks. Supported constructs (research R5):
+//   sequence      a b c
+//   rest          ~
+//   sample event  bank            (index 0)
+//                 bank:3          (explicit :n selector)
+//   group         [a b]           (subdivide the step equally)
+//   fast / slow   a*2  a/2
+//   euclid        bank(3,8)       (Euclidean rhythm)
+//   stack         [a b, c d]      (polyphony, ',' inside a group)
+//
+// Deferred to a later version (documented, not silently missing):
+//   <a b> per-cycle alternation, ? randomness, ! replicate, @ elongate,
+//   polymeter {a b, c d e}, and function combinators (every/jux/chunk).
+//
+// The outer Tidal line `d1 $ s "<this>" # gain _ # speed _` and its control
+// suffixes are handled structurally by the pattern (de)serializer; this
+// grammar governs the mini-notation string only.
 
-// Minimal illustrative core; NOT the final subset.
-start: step (WS step)*
-step: SAMPLE mult? | REST | "[" start "]"
-mult: "*" INT
-SAMPLE: /[a-z][a-z0-9]*/ (":" INT)?
-REST: "~"
+start: sequence
+
+sequence: element+
+
+?element: modified | atom
+
+modified: atom MOD
+
+MOD: "*" INT | "/" INT | "(" INT "," INT ")"
+
+?atom: rest | event | group
+
+rest: "~"
+
+event: NAME (":" INT)?
+
+group: "[" stack "]"
+
+stack: sequence ("," sequence)*
+
+NAME: /[a-z][a-z0-9]*/
 INT: /[0-9]+/
-WS: /[ \t]+/
+
+%import common.WS
+%ignore WS
