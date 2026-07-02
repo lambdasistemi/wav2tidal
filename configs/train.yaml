@@ -5,7 +5,7 @@
 dataset: "synth_n400_seed0"
 model_name: "google/byt5-small"
 revision: "68377bdc18a2ffec8a0533fef03b1c513a4dd49d"  # byt5-small, resolved 2026-07-02
-epochs: 10
+epochs: 40
 batch_size: 8
 lr: 0.0003
 max_input_len: 96
