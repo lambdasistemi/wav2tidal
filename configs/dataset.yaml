@@ -27,3 +27,9 @@ mode: "slices"
 tail_seconds: 2.0
 # RT jobs per booted SuperDirt; boot (~15 s) is amortized across the batch.
 rt_batch_size: 16
+
+# Hybrid corpus mix (issue #30): fraction of synth-mode items that are
+# parameter scenes (grammar v3, drones + trajectories) vs v2 event lines.
+scene_ratio: 0.7
+# Trajectory tick for scene renders (seconds).
+automation_tick: 0.05

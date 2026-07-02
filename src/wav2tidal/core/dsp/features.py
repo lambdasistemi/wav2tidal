@@ -123,3 +123,30 @@ def track_descriptors(y: np.ndarray, sr: int, hop_length: int = 512) -> dict:
         "key_strength": key_strength,
         "onset_rate": onset_rate(y, sr, hop_length),
     }
+
+
+def centroid_motion(
+    clip: np.ndarray, sr: int, hop_length: int = 512
+) -> tuple[float, float]:
+    """Timbre movement of a clip: (trend ratio, wobble coefficient).
+
+    Trend ratio = mean centroid of the last third over the first third
+    (>1 = brightening); wobble = normalized std of the detrended centroid
+    track (how much the brightness oscillates around its trend). The
+    movement-aware descriptor buckets these (issue #30) — a static
+    brightness figure cannot distinguish a filter sweep from a fixed
+    timbre.
+    """
+    import librosa
+
+    cent = librosa.feature.spectral_centroid(y=clip, sr=sr, hop_length=hop_length)[0]
+    cent = cent[cent > 0]
+    if cent.size < 9:
+        return 1.0, 0.0
+    third = cent.size // 3
+    start, end = float(cent[:third].mean()), float(cent[-third:].mean())
+    ratio = end / start if start > 0 else 1.0
+    x = np.arange(cent.size, dtype=np.float64)
+    trend = np.polyval(np.polyfit(x, cent, 1), x)
+    wobble = float(np.std(cent - trend) / max(np.mean(cent), 1e-9))
+    return ratio, wobble

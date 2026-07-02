@@ -378,3 +378,25 @@ must be seeded or accepted; pin the SuperDirt quark derivation for repro.
   fits in ~2.5 h, well inside SC-010's 24 h budget. Parallel fleets of
   SuperDirt instances (distinct OSC/server ports + null sinks) are the
   obvious scale-out if needed.
+
+### R7 addendum 2 — scene rendering (issue #29/#30, verified 2026-07-02)
+
+- **The faked `~dirt = (numChannels: 2)` never worked**: `Object.numChannels`
+  is a real method (returns 1), shadowing the Event key — every NRT render
+  had compiled the defs MONO. Fix: `~dirt = 0 ! 2` (an Array's
+  `numChannels` is its size). NRT is now true stereo.
+- **Default scsynth resources are too small for the broad palette**: the
+  GVerb-carrying defs (superprimes, supergrind, superwavemechanics) fail
+  to load ("exceeded number of interconnect buffers" at every boot — now
+  explained) or crash the server mid-batch ("GVerb_Ctor: alloc failed").
+  Fix: `numWireBufs = 512`, `memSize = 131072` (KB) on both RT boots and
+  NRT ServerOptions.
+- **libsndfile stamps float WAVs with a timestamped PEAK chunk** — peak
+  normalization must write PCM_24 to keep NRT byte-determinism.
+- **`dirt_monitor` starts paused and only /dirt/play resumes it** — a
+  pure-drone RT job renders silence unless the alwaysRun global effects
+  are resumed at boot.
+- **SC-010 with scenes**: per-item cost matches the event-path derivation
+  (RT ≈ clip length + 0.8 s gap, boot amortized per batch; NRT scene ≈
+  3–4 s incl. normalization). Measured: 10 hybrid items (6 RT + 4 NRT,
+  6 s clips) in 51 s.
