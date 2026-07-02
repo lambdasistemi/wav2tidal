@@ -93,6 +93,11 @@
             export PYTHONPATH="$PWD/src"
             export PYTHONDONTWRITEBYTECODE=1
             export RUFF_CACHE_DIR="$TMPDIR/ruff"
+            # librosa -> numba JITs and tries to cache next to its read-only
+            # store source; give it (and HOME-based caches) a writable home.
+            export HOME="$TMPDIR"
+            export NUMBA_CACHE_DIR="$TMPDIR/numba"
+            export MPLCONFIGDIR="$TMPDIR/mpl"
             ruff check src tests
             black --check src tests
             pytest -p no:cacheprovider
