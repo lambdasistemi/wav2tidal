@@ -17,7 +17,11 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from .params import SYNTHS, midicps
+from ..render.schedule import schedule_events
+from .grammar import bank_refs, parse_mini
+from .model import Pattern
+from .params import GLOBAL, PARAMS, SYNTH_NAMES, SYNTHS, midicps
+from .validate import Sources
 
 # Source-synth args every Super* def accepts (default-synths-extra.scd).
 _NRT_CORE = ("pan", "speed", "accelerate")
@@ -61,3 +65,70 @@ def nrt_params(
         if key in controls:
             params[key] = float(controls[key])
     return params
+
+
+# -- Renderer routing (US2-synth-4, issue #21) -------------------------------
+#
+# Fidelity rule: a config may only go to a renderer that realizes EVERY
+# control it sets, otherwise the descriptor would describe audio the config
+# text does not match — mislabeled training pairs.
+
+MIX = "mix"  # pure numpy slice mixdown (CI-safe; samples, gain/speed/pan only)
+NRT = "nrt"  # headless deterministic Score.recordNRT (bare source defs)
+RT = "rt"  # booted SuperDirt capture (full chain incl. global FX)
+
+_MIX_FAITHFUL = frozenset({"gain", "speed", "pan"})
+_NRT_COMMON = frozenset({"note", "n", "pan", "speed", "accelerate"})
+
+
+def route(pattern: Pattern, sources: Sources) -> str:
+    """Pick the cheapest renderer that faithfully realizes the config.
+
+    - any global send -> RT (no NRT support for orbit FX, R7 tier 2)
+    - banks only: gain/speed/pan -> MIX; any FX/note/envelope -> RT
+      (the numpy mixdown implements no FX DSP; NRT has no sample buffers)
+    - synth/custom only: controls the bare defs consume -> NRT; anything
+      needing SuperDirt's module chain (event FX, envelope, gain) -> RT
+      until the NRT score chains dirt_* effect synths (issue #24)
+    - banks mixed with synths -> RT
+    """
+    names = {name for name, _ in bank_refs(parse_mini(pattern.mini))}
+    if any(k in PARAMS and PARAMS[k].scope == GLOBAL for k in pattern.controls):
+        return RT
+    non_banks = names - set(sources.banks)
+    if not non_banks:
+        return MIX if set(pattern.controls) <= _MIX_FAITHFUL else RT
+    if names & set(sources.banks):
+        return RT
+    allowed = set(_NRT_COMMON)
+    synths = non_banks & SYNTH_NAMES
+    if synths:
+        allowed |= frozenset.intersection(*(frozenset(SYNTHS[s]) for s in synths))
+    return NRT if set(pattern.controls) <= allowed else RT
+
+
+def render_events(
+    pattern: Pattern, sources: Sources, cps: float, n_cycles: int, mode: str
+) -> list[tuple[float, str, dict[str, float | str]]]:
+    """Schedule a config and map each event to renderer params.
+
+    RT events carry the full control set (+ ``sustain`` = slot duration for
+    synth/custom sources; samples keep SuperDirt's buffer-length default).
+    NRT events carry the bare-synthdef args (``nrt_params``).
+    """
+    out: list[tuple[float, str, dict[str, float | str]]] = []
+    for ev in schedule_events(pattern, cps, n_cycles):
+        if mode == NRT:
+            out.append(
+                (
+                    ev.start,
+                    ev.bank,
+                    nrt_params(ev.bank, pattern.controls, ev.duration, ev.index),
+                )
+            )
+        else:
+            params = rt_params(pattern.controls, n=ev.index)
+            if ev.bank not in sources.banks:
+                params.setdefault("sustain", ev.duration)
+            out.append((ev.start, ev.bank, params))
+    return out
