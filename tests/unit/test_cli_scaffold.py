@@ -32,5 +32,5 @@ def test_all_stages_present():
 
 def test_unimplemented_stage_exits_2():
     parser = build_parser()
-    args = parser.parse_args(["ingest", "--config", "x.yaml"])
+    args = parser.parse_args(["train", "--config", "x.yaml"])
     assert args.handler(args) == 2
