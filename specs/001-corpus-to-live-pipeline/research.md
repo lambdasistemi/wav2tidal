@@ -293,3 +293,54 @@ and gate on it before render-based scores are trusted.
    grammar** artifact (FR-008) is the lynchpin shared by validator (FR-009),
    generator (FR-011), and constrained decoding (R3) — call it out in the
    data model and contracts.
+
+---
+
+## R7 — Headless/real-time SuperDirt synth rendering (2026-07-02)
+
+**Context**: direction shifted to **sound-first — real-time control of
+SuperDirt synths** (see `design-change-001-sound-first.md`). We need to
+render synth+FX configurations to audio for a (config → audio) training
+dataset and for live scoring. Verified on the box (SuperCollider 3.13.1)
+and against SuperDirt source; full detail in the `reference_superdirt_nrt`
+memory.
+
+**Decision**: two-tier rendering. **Tier-1 headless deterministic NRT
+works** for a source synth + per-event effects (`Score.recordNRT` →
+`scsynth -N … _ out.wav 44100 WAV int16`, no audio device; determinism via
+`RandSeed.ir` — proven byte-identical across runs). **Tier-2 global FX**
+(reverb/delay + DirtOrbit routing) has **no NRT support**; the wet signal
+requires **real-time capture** of a booted SuperDirt. Since the user put
+global FX in scope, **dataset generation uses real-time capture through a
+booted SuperDirt** (one sound engine shared with the live agent, R6
+capture), with tier-1 NRT retained as a fast deterministic path for the
+synth+per-event subset.
+
+**Verified**:
+- `scsynth -N` args, `Score.recordNRT` signature, OSC score-bundle format —
+  VERIFIED (SC source + usage banner).
+- Headless render with no audio device — VERIFIED (rendered on box).
+- Default NRT nondeterministic; `RandSeed.ir` makes it deterministic —
+  VERIFIED (md5 differs, then matches).
+- Which Super* synths carry server RNG (need seeding) vs are deterministic
+  as-shipped — VERIFIED (grep + reading defs).
+- Full param vocabulary + routing order + ranges (cutoff/resonance/hcutoff/
+  bandf/shape/crush/coarse/vowel/attack/release/… + supersaw voice/detune/
+  lfo, global room/size/delaytime/delayfeedback) — VERIFIED (synth source).
+- Live control `/ctrl name value` → **Tidal:6010** (`cF`/`cS`/`cI`), which
+  forwards to SuperDirt:57120 — VERIFIED (corrects R5: 6010 is Tidal, not
+  SuperDirt).
+- Custom SynthDef convention (DirtPan.ar wrap, doneAction:2, read freq/
+  sustain/speed/…); Dirt* are pseudo-UGens (no binary plugin) — VERIFIED.
+- nixpkgs supercollider 3.13.1; SuperDirt = bespoke derivation (quark
+  1.7.3), pin it — VERIFIED (`nix eval` + store inspection).
+
+**NEEDS-HARDWARE-TEST**: (a) an end-to-end real-time capture through booted
+SuperDirt (the new audio-path smoke gate); (b) rendering a real `supersaw`
+(not a toy synth) via NRT — needs sc3-plugins UGens on the NRT plugin path;
+robust recipe = render from the `sclang-with-superdirt` wrapper and dump
+the compiled def bytes into the score.
+
+**Open risks**: RT-capture dataset gen is wall-clock-bound and only
+seeded-deterministic (SC-008 relaxes to within-tolerance); global-FX Rand
+must be seeded or accepted; pin the SuperDirt quark derivation for repro.

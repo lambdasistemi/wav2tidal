@@ -4,9 +4,16 @@
 
 **Created**: 2026-07-02
 
-**Status**: Draft
+**Status**: Draft — amended by [design-change-001-sound-first.md](./design-change-001-sound-first.md)
 
-**Input**: User description: "wav2tidal v1 full pipeline: corpus ingestion (WAV slicing to SuperDirt banks, feature and embedding extraction), synthetic dataset via pure slice-mixdown renderer, LoRA fine-tune of a local LLM (descriptor to Tidal mini-notation), live evolutionary agent closing the loop through SuperDirt and PipeWire capture"
+> **Amendment (2026-07-02): sound-first.** The instrument's priority shifted
+> to **real-time control of SuperDirt synths and their full FX/parameter
+> vocabulary** (not only arranging sample slices). Global effects are in
+> scope; the learned model targets synth+param configurations; dataset
+> generation uses real-time capture through a booted SuperDirt. See the
+> design-change ADR for the FR deltas (FR-008/012/013/015/021) and the
+> reshaped User Story 2/3. Requirements below read against that ADR where
+> they conflict.
 
 ## Overview
 
