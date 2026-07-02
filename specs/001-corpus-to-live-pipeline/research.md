@@ -103,16 +103,17 @@ FHS on NixOS.
 - **Baseline / data generator**: a **procedural pattern generator** (pure,
   seeded, 100 % valid). Required infrastructure regardless — it *is* the
   synthetic-dataset generator (FR-011).
-- **Learned model — RECOMMENDED primary: `byt5-small` seq2seq
-  (Apache-2.0)**, a tokenizer-free byte-level string→string model. It is
-  the architecturally correct fit for descriptor-text → mini-notation and
-  never mangles pattern punctuation (`~ * [ ] < > / .`) the way a BPE
-  tokenizer can.
-- **Learned model — documented ALTERNATIVE: LoRA on a tiny instruct LLM**
-  (`Qwen2.5-0.5B-Instruct` or `SmolLM2-360M-Instruct`, both Apache-2.0).
-  Wins only if descriptors later include free-form natural language or a
-  pretrained "musical prior" is wanted. **This is the user's originally
-  stated path** (LoRA fine-tune) — see the decision flag in plan.md.
+- **Learned model — CHOSEN (user, 2026-07-02): `byt5-small` seq2seq
+  (Apache-2.0)**, a tokenizer-free byte-level string→string model — the
+  architecturally correct fit for descriptor-text → mini-notation that
+  never mangles pattern punctuation (`~ * [ ] < > / .`). Full fine-tune in
+  bf16 (~300 M params, comfortable on 128 GB; LoRA optional). Trains on
+  the torch-ROCm/gfx1151 substrate (R2); FR-018 smoke test still gates it.
+- **Learned model — REJECTED for v1: LoRA on a tiny instruct LLM**
+  (`Qwen2.5-0.5B-Instruct`/`SmolLM2-360M-Instruct`, Apache-2.0). Its only
+  edge — free-form natural-language descriptor understanding — is out of
+  v1 scope (targets are audio, not text). Kept as a documented future
+  option if text prompting is added.
 - **Output validity: grammar-constrained decoding** via `outlines`
   (Lark/EBNF CFG) with `lm-format-enforcer` as fallback. This — not the
   model — is what delivers the ≥95 %-valid gate (realistically ~100 %
@@ -231,15 +232,17 @@ requirements are UNDOCUMENTED** (validate empirically — safe assumption:
 
 ## R6 — Capturing the agent's own audio (live session)
 
-**Decision (design refinement — see spec note)**: in the **evolution
-inner loop, score the deterministic offline render** of the currently
-playing pattern, **not** live-captured audio. FR-013 guarantees offline ≈
-live within tolerance, so capture buys nothing there while adding xruns,
-latency-alignment, and device-naming fragility and breaking SC-008
-reproducibility. **Keep live capture as a verification/telemetry
-channel** that (a) satisfies FR-021's "captures its own output" literally,
-(b) measures whether offline≈live actually holds (validating FR-013), and
-(c) honors the "refuse evolution if capture path missing" precondition.
+**Decision (USER, 2026-07-02): live capture is authoritative.** The
+evolution loop scores the **live-captured** audio of the agent's own
+output — the research team recommended scoring the offline render
+instead (FR-013 makes them equivalent, and capture adds xruns/latency/
+device-naming fragility while weakening reproducibility), but the user
+chose fidelity to "listens to its own output" over the shortcut. The
+offline render (below) is retained as the dataset-generation signal
+(FR-012) and as a fallback/cross-check when capture is unavailable or to
+validate that offline≈live (FR-013). The capture path below is therefore
+on the hot path, not just telemetry — its robustness (xruns, cycle
+alignment, device naming) is a first-class implementation concern.
 
 **Capture path (VERIFIED locally on PipeWire 1.6.2)**: route scsynth to a
 **dedicated PipeWire null sink** (isolation by construction) via
@@ -280,9 +283,9 @@ and gate on it before render-based scores are trusted.
 
 ## Spec-affecting findings (feed back into spec per workflow rule)
 
-1. **FR-021 refinement**: authoritative evolution score = offline render;
-   live capture = verification channel. Recommend a `/speckit.clarify`
-   note or a spec edit narrowing FR-021 accordingly.
+1. **FR-021 RESOLVED (user)**: live capture stays authoritative; offline
+   render is dataset signal + fallback/cross-check. Capture robustness is
+   on the hot path. FR-021 stands as written — no spec edit.
 2. **Model fork (FR-015)**: research recommends **ByT5 seq2seq** over the
    originally-stated **LoRA'd LLM**. Needs a user decision (surfaced
    separately). The procedural generator is required either way.
