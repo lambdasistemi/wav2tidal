@@ -1,0 +1,18 @@
+// wav2tidal pattern-subset grammar (FR-008) — the single source of truth
+// shared by the procedural generator, the validator, and the constrained
+// decoder. This is a SCAFFOLD placeholder; the full subset is authored in
+// task T009 (see specs/001-corpus-to-live-pipeline/research.md R5 for the
+// verified construct list and contracts/interfaces.md for the surface).
+//
+// version: 0.0.0-scaffold
+// bounds (to be enforced by the validator, T029): max_events_per_cycle,
+//         max_nesting_depth — defined in configs, not here.
+
+// Minimal illustrative core; NOT the final subset.
+start: step (WS step)*
+step: SAMPLE mult? | REST | "[" start "]"
+mult: "*" INT
+SAMPLE: /[a-z][a-z0-9]*/ (":" INT)?
+REST: "~"
+INT: /[0-9]+/
+WS: /[ \t]+/
