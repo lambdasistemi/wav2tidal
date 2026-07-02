@@ -1,4 +1,4 @@
-// wav2tidal pattern-subset grammar (FR-008), v2.0.0.
+// wav2tidal pattern-subset grammar (FR-008), v3.0.0.
 //
 // The single source of truth for the config language shared by the
 // procedural generator, the validator, and — later — the grammar-
@@ -33,6 +33,31 @@
 // Still deferred: <a b> alternation, ? randomness, ! replicate, @ elongate,
 // polymeter {..}, function combinators, and per-control patterns
 // (# cutoff "400 800").
+
+// v3 (design-change-002 parameter scenes) adds the `scene` start rule:
+// compose in parameter space — 1..4 sustained voices, each a synth/custom
+// source with static controls plus `mod` trajectories that move a param
+// along a shape over time, and an optional grammar-v2 event `layer` for
+// rhythmic material. Shape arity and value/rate bounds are semantic
+// (core/pattern/shapes.py + params.py); the grammar fixes the syntax:
+//   scene voice supersaw # note -12 # lfo 0.5
+//         mod cutoff sine 800 600 0.25 mod resonance ramp 0.2 0.6
+//         voice superhammond # note 0 mod room walk 0.4 0.3 0.5 7
+//         layer d1 $ s "bd(3,8)" # gain 0.9
+// The v2 `line`/`mini` rules are unchanged and remain valid targets.
+
+scene: "scene" scene_voice+ scene_layer?
+
+scene_voice: "voice" event control* traj*
+
+traj: "mod" PARAM traj_shape
+
+?traj_shape: "ramp" NUMBER NUMBER            -> shape_ramp
+           | "sine" NUMBER NUMBER NUMBER     -> shape_sine
+           | "walk" NUMBER NUMBER NUMBER INT -> shape_walk
+           | "steps" NUMBER+                 -> shape_steps
+
+scene_layer: "layer" line
 
 line: "d1" "$" "s" "\"" sequence "\"" control*
 
