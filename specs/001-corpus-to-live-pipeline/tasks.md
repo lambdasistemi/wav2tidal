@@ -4,9 +4,14 @@
 > (2026-07-02).** Done: Phase 1 scaffold, US1 ingest (PR #4), US2a pattern
 > engine (PR #6), GPU training gate (PR #7). **User Story 2 is reshaped
 > around synth control** — the ADR's "Reshaped US2 task plan" supersedes
-> Phase 4 below for the synth path (audio-path smoke gate → grammar v2 →
-> tier-1 NRT + SuperDirt RT-capture renderers → dataset → ByT5 training).
-> Phase 4 below remains the record for the slice-based path (US2a).
+> Phase 4 below for the synth path. Status (2026-07-02): US2-synth-1 NRT
+> renderer + smoke gate (issue #9, PR #10), US2-synth-2 RT capture
+> renderer (issue #11, PR #12), and US2-synth-3 grammar v2 action space
+> (issue #13, PR #20) are MERGED; next is US2-synth-4 dataset (issue #21),
+> then US2-synth-5 ByT5 training (issue #22, blocked by #21); pending
+> follow-ups: flake-pin SuperDirt (issue #23), NRT per-event FX chaining
+> (issue #24). Phase 4 below remains the record for the slice-based path
+> (US2a).
 
 **Input**: Design documents from `/specs/001-corpus-to-live-pipeline/`
 **Prerequisites**: plan.md, spec.md, research.md, data-model.md, contracts/
