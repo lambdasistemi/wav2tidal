@@ -1,8 +1,8 @@
-"""Pure test of the NRT sclang script builder (CI-safe, no SuperCollider)."""
+"""Pure test of the sclang script builders (CI-safe, no SuperCollider)."""
 
 from __future__ import annotations
 
-from wav2tidal.io.superdirt import build_nrt_script
+from wav2tidal.io.superdirt import build_nrt_script, build_rt_script
 
 
 def _script():
@@ -36,3 +36,29 @@ def test_duration_wired():
     s = _script()
     assert "duration: 1.4" in s
     assert "44100" in s
+
+
+def _rt():
+    return build_rt_script(
+        synth="supersaw",
+        params={"cutoff": 500, "room": 0.7, "note": 0},
+        seconds=3.0,
+        out_wav="/tmp/rt.wav",
+    )
+
+
+def test_rt_script_boots_superdirt_and_plays_dirt():
+    s = _rt()
+    assert "SuperDirt(2, s)" in s
+    assert "~dirt.start(57120, [0])" in s
+    assert 's.record("/tmp/rt.wav"' in s
+    assert '"/dirt/play"' in s
+    assert '\\s, "supersaw"' in s
+    assert "WAV2TIDAL_RT_OK" in s
+
+
+def test_rt_script_emits_fx_params():
+    s = _rt()
+    assert "\\cutoff, 500" in s
+    assert "\\room, 0.7" in s
+    assert "\\orbit, 0" in s

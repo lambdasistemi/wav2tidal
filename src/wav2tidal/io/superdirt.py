@@ -33,6 +33,114 @@ def _fmt(v: float | int) -> str:
     return f"{v:g}" if isinstance(v, float) else str(v)
 
 
+def _dirt_args(synth: str, params: dict[str, float]) -> str:
+    parts = [f'\\s, "{synth}"']
+    for k, v in sorted(params.items()):
+        parts.append(f"\\{k}, {_fmt(v)}")
+    return ", ".join(parts)
+
+
+def build_rt_script(
+    synth: str,
+    params: dict[str, float],
+    seconds: float,
+    out_wav: str,
+    port: int = 57120,
+) -> str:
+    """Pure: sclang source that boots SuperDirt, plays one /dirt/play event
+    through an orbit (so the full FX chain — filters, reverb, delay — applies),
+    and records the wet output bus. This is the real-time renderer (T US2-synth-2);
+    unlike NRT it captures global FX, at the cost of wall-clock time + determinism.
+    """
+    play = (
+        f'NetAddr("127.0.0.1", {port})'
+        f'.sendMsg("/dirt/play", {_dirt_args(synth, params)}, \\orbit, 0);'
+    )
+    return f"""(
+s.waitForBoot {{
+    ~dirt = SuperDirt(2, s);
+    ~dirt.loadSynthDefs;
+    s.sync;
+    ~dirt.start({port}, [0]);
+    s.sync;
+    "WAV2TIDAL_RT_READY".postln;
+    s.record("{out_wav}", numChannels: 2);
+    s.sync;
+    {play}
+    {_fmt(float(seconds))}.wait;
+    s.stopRecording;
+    0.5.wait;
+    "WAV2TIDAL_RT_OK".postln;
+    0.exit;
+}};
+)
+"""
+
+
+def rt_render(
+    synth: str,
+    params: dict[str, float],
+    seconds: float,
+    out_wav: str | Path,
+    *,
+    sclang: str | None = None,
+    sink: str | None = "w2t_rt",
+    timeout: float = 180.0,
+) -> Path:
+    """Render one synth+FX event to ``out_wav`` via a booted SuperDirt (real time).
+
+    Captures the full orbit output including global FX (reverb/delay). If ``sink``
+    is set and PipeWire is available, routes SuperCollider to a temporary null sink
+    (best-effort) so playback does not reach the speakers.
+    """
+    sclang = _resolve_sclang(sclang)
+    out_wav = Path(out_wav)
+    out_wav.parent.mkdir(parents=True, exist_ok=True)
+
+    env = dict(os.environ)
+    routed = _make_null_sink(sink) if sink else False
+    if routed:
+        env["SC_JACK_DEFAULT_OUTPUTS"] = f"{sink}:playback_FL,{sink}:playback_FR"
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            script = Path(td) / "rt.scd"
+            script.write_text(build_rt_script(synth, params, seconds, str(out_wav)))
+            proc = subprocess.run(
+                [sclang, str(script)],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                env=env,
+            )
+    finally:
+        if routed:
+            _unload_null_sink()
+
+    if "WAV2TIDAL_RT_OK" not in proc.stdout or not out_wav.exists():
+        raise RuntimeError(
+            f"RT render failed for {synth}\nstdout tail:\n{proc.stdout[-800:]}"
+        )
+    return out_wav
+
+
+def _make_null_sink(name: str) -> bool:
+    if not shutil.which("pactl"):
+        return False
+    r = subprocess.run(
+        ["pactl", "load-module", "module-null-sink", f"sink_name={name}"],
+        capture_output=True,
+        text=True,
+    )
+    return r.returncode == 0
+
+
+def _unload_null_sink() -> None:
+    if shutil.which("pactl"):
+        subprocess.run(
+            ["pactl", "unload-module", "module-null-sink"], capture_output=True
+        )
+
+
 def build_nrt_script(
     synth: str,
     params: dict[str, float],
