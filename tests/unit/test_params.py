@@ -3,8 +3,23 @@
 from __future__ import annotations
 
 import random
+import re
 
 from wav2tidal.core.pattern import params
+from wav2tidal.core.pattern.grammar import grammar_path
+
+
+def _grammar_param_names() -> set[str]:
+    text = grammar_path().read_text()
+    m = re.search(r"PARAM:(.*?)\n\nVOWEL", text, re.S)
+    assert m, "PARAM terminal not found in grammar"
+    return set(re.findall(r'"([a-z0-9]+)"', m.group(1)))
+
+
+def test_grammar_and_table_vocabularies_agree():
+    # the .lark file is the syntactic source of truth, params.py the
+    # semantic one — they must never drift apart
+    assert _grammar_param_names() | {"vowel"} == set(params.PARAM_ORDER)
 
 
 def test_every_synth_param_has_a_spec():

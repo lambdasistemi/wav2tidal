@@ -35,7 +35,13 @@ def test_syntax_error_rejected():
 
 def test_unknown_bank_rejected():
     v = validate(_p("kick sn"), BANKS)
-    assert not v.valid and "unknown bank" in v.reason
+    assert not v.valid and "unknown source" in v.reason
+
+
+def test_banks_only_dict_rejects_synth_names():
+    # v1 sample-path semantics: a plain banks dict does not admit synths
+    v = validate(_p("supersaw bd"), BANKS)
+    assert not v.valid and "unknown source" in v.reason
 
 
 def test_index_out_of_range_rejected():
