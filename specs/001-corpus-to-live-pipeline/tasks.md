@@ -12,6 +12,13 @@
 > follow-ups: flake-pin SuperDirt (issue #23), NRT per-event FX chaining
 > (issue #24). Phase 4 below remains the record for the slice-based path
 > (US2a).
+>
+> **Further amended by [design-change-002-parameter-scenes.md](./design-change-002-parameter-scenes.md)
+> (2026-07-02): parameter scenes.** US2-synth-4 dataset MERGED (issue #21,
+> PR #26). Composition pivots to parameter space (drone voices + shaped
+> trajectories, hybrid with event layers): US2-scene-1 grammar v3 →
+> US2-scene-2 renderer automation + normalization → US2-scene-3 scene
+> dataset → #22 ByT5 on the hybrid corpus.
 
 **Input**: Design documents from `/specs/001-corpus-to-live-pipeline/`
 **Prerequisites**: plan.md, spec.md, research.md, data-model.md, contracts/
