@@ -12,6 +12,7 @@ Deterministic given fixed inputs and pinned librosa. No RNG.
 from __future__ import annotations
 
 import librosa
+import librosa.feature.rhythm  # noqa: F401  (register lazy-loaded submodule)
 import numpy as np
 
 
