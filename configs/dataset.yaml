@@ -1,0 +1,17 @@
+# wav2tidal synthetic-dataset configuration (T033). Committed and editable.
+# See src/wav2tidal/core/config.py:DatasetConfig for the full field list.
+
+size: 1000
+seed: 0
+
+# Timing: cps = cycles/second (0.5 ≈ 120 BPM at 4 beats/cycle).
+cps: 0.5
+n_cycles: 2
+
+# Must match the ingest target_sr so rendered audio and banks agree.
+target_sr: 48000
+hop_length: 512
+
+# Pattern complexity bounds (validator, FR-009).
+max_events_per_cycle: 64
+max_nesting_depth: 4
