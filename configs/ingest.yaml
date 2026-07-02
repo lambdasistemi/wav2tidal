@@ -1,0 +1,26 @@
+# wav2tidal ingest configuration (T024). Committed and editable (FR-026).
+# See src/wav2tidal/core/config.py:IngestConfig for the full field list.
+
+# Sample rate everything is normalized to. Must match the embedder's rate:
+# CLAP wants 48000 (research R1). Keep ingest and embedding in agreement.
+target_sr: 48000
+hop_length: 512
+
+# Slicing (research R4): "beat" | "onset" | "grid". Any strategy falls back
+# to energy segmentation when no reliable beat is found.
+slice_strategy: beat
+beats_per_slice: 1
+grid_subdivisions: 4
+
+# Validation thresholds.
+silence_top_db: 40.0
+min_slice_seconds: 0.05
+clip_fraction: 0.001
+
+# Embedding: "null" = hand-crafted DSP descriptors only (offline, CPU, the
+# default). "clap" = LAION-CLAP music embedder (needs a one-time model fetch;
+# run `just fetch-models` first).
+embedder: "null"
+n_mfcc: 20
+
+seed: 0
