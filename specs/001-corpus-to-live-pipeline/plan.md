@@ -91,17 +91,27 @@ No violations → Complexity Tracking omitted.
 
 ## Open decisions surfaced to the user (do not silently resolve)
 
-1. **Learned-model fork (FR-015)** — research recommends **ByT5-small
-   seq2seq** (tokenizer-free, architecturally correct for
-   descriptor→mini-notation) over the originally-stated **LoRA'd tiny
-   LLM**. The procedural generator is required either way. *User decision
-   pending* — see the question posed after this plan. The plan and tasks
-   are written so the generator + validator + grammar + evolution are
-   model-agnostic; only the `train`/`generate` internals differ.
-2. **FR-021 refinement** — score the offline render in the evolution loop;
-   demote live capture to a verification channel. Recommend a
-   `/speckit.clarify` note narrowing FR-021 before implementation of
-   User Story 3.
+1. **Learned-model fork (FR-015) — RESOLVED (user, 2026-07-02): ByT5-small
+   seq2seq** (`google/byt5-small`, Apache-2.0). Tokenizer-free byte-level
+   string→string, architecturally correct for descriptor→mini-notation and
+   won't mangle pattern punctuation. The LoRA'd-tiny-LLM path is dropped
+   for v1 (its only edge — free-text prompt understanding — is out of
+   scope). The procedural generator + grammar + validator + evolution
+   remain model-agnostic; only `train`/`generate` bind to ByT5. Note:
+   torch-ROCm on gfx1151 (R2) is still the training substrate; byt5-small
+   (~300 M) trains comfortably in bf16 on 128 GB (full fine-tune viable;
+   LoRA optional). The FR-018 GPU smoke test still gates training.
+2. **FR-021 — RESOLVED (user, 2026-07-02): keep live capture
+   authoritative.** The evolution loop scores the **live-captured** audio
+   of the agent's own output (PipeWire null-sink monitor, R6), as the spec
+   originally states — chosen for fidelity to "listens to its own output"
+   over the simpler offline-render shortcut. The deterministic offline
+   render (R6) is retained as (a) the dataset-generation signal (FR-012,
+   unchanged) and (b) a fallback score when capture is unavailable and a
+   cross-check that offline≈live (FR-013). Accepted tradeoff: added
+   real-time capture complexity and weaker reproducibility of live
+   sessions (per-session logs remain, SC-008 still applies to the offline
+   dataset/train path). No spec edit needed — FR-021 stands as written.
 
 ## Project Structure
 
