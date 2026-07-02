@@ -1,5 +1,13 @@
 # Tasks: Corpus-to-Live Pipeline (wav2tidal v1)
 
+> **Amended by [design-change-001-sound-first.md](./design-change-001-sound-first.md)
+> (2026-07-02).** Done: Phase 1 scaffold, US1 ingest (PR #4), US2a pattern
+> engine (PR #6), GPU training gate (PR #7). **User Story 2 is reshaped
+> around synth control** — the ADR's "Reshaped US2 task plan" supersedes
+> Phase 4 below for the synth path (audio-path smoke gate → grammar v2 →
+> tier-1 NRT + SuperDirt RT-capture renderers → dataset → ByT5 training).
+> Phase 4 below remains the record for the slice-based path (US2a).
+
 **Input**: Design documents from `/specs/001-corpus-to-live-pipeline/`
 **Prerequisites**: plan.md, spec.md, research.md, data-model.md, contracts/
 
