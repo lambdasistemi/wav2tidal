@@ -309,11 +309,19 @@ class SceneDiversity:
 _GLOBAL_NAMES = tuple(s.name for s in GLOBAL_FX)
 
 
+# FX activators: params that spawn their dirt_* module by themselves.
+# Secondary FX params (resonance/hresonance/bandq) are inert without their
+# activator and only enter a voice's pools via the synth's own param list;
+# vowel needs the Vowel quark's formant tables (unrenderable in the scene
+# chain for now — see dirt._MODULES).
+_FX_PRIMARY = ("cutoff", "hcutoff", "bandf", "shape", "crush")
+
+
 def _modulatable(source: str | None) -> list[str]:
     """Params a voice on ``source`` may modulate (no globals) — the
-    table's ``modulatable`` rule over core + event-FX + the synth's own."""
+    table's ``modulatable`` rule over the renderable scene subset."""
     pool = [n for n in ("note", "pan") if modulatable(n)]
-    pool += [s.name for s in EVENT_FX if modulatable(s.name)]
+    pool += [n for n in _FX_PRIMARY if modulatable(n)]
     if source is not None:
         pool += [n for n in sorted(SYNTHS[source]) if modulatable(n)]
     return list(dict.fromkeys(pool))  # e.g. resonance is both FX and synth param
@@ -337,7 +345,9 @@ def _sample_voice(rng: random.Random, name: str, div: SceneDiversity) -> Voice:
         dict.fromkeys(
             p
             for p in (
-                _EVENT_FX_NAMES + (tuple(sorted(SYNTHS[source])) if source else ())
+                _FX_PRIMARY
+                + ("coarse",)
+                + (tuple(sorted(SYNTHS[source])) if source else ())
             )
             if p not in controls
         )
