@@ -347,3 +347,34 @@ the compiled def bytes into the score.
 **Open risks**: RT-capture dataset gen is wall-clock-bound and only
 seeded-deterministic (SC-008 relaxes to within-tolerance); global-FX Rand
 must be seeded or accepted; pin the SuperDirt quark derivation for repro.
+
+### R7 addendum — dataset rendering (issue #21, verified on the box 2026-07-02)
+
+- **Multi-event NRT determinism needs explicit seeding**: a score mixing
+  supersaw with a noise-carrying def (superkick's WhiteNoise click) is
+  NONdeterministic until a `RandSeed.ir` synth at score time 0 seeds the
+  server RNG (rand ID 0 is shared by all defs). With the seed synth, two
+  renders are byte-identical and changing the seed changes the bytes —
+  VERIFIED. Encoded in `io/superdirt.py:build_nrt_events_script`.
+- **SuperDirt's orbit-owned global delay never sounds** when resumed by
+  the event path: the `dirt_delay` synth is created paused at orbit start
+  (`Synth.newPaused`, no args) and after `/dirt/play` carries
+  `delaytime`/`delayfeedback` (GlobalDirtEffect resume + n_set — state
+  updates confirmed lang-side) the effect bus stays silent, while the
+  orbit reverb (`room`/`size`) resumes and sounds fine through the same
+  path. A `dirt_delay` synth created WITH its params as creation args
+  sounds correctly (echo tail on the effect bus) — VERIFIED with bus
+  meters and `/n_trace`. Root cause in SuperDirt unresolved (candidate
+  upstream report). Workaround encoded in `build_rt_batch_script`: delay
+  params are realized by a fresh per-job `dirt_delay` synth (also
+  guaranteeing an empty delay line per render) and stripped from the
+  per-event messages so a future SuperDirt fix cannot double-apply them.
+- **SC-010 re-derivation** (RT is wall-clock-bound): with one booted
+  SuperDirt per `rt_batch_size=16` batch, an RT item costs ≈ clip length
+  (n_cycles/cps + tail_seconds, default 6 s) + 0.8 s recorder gap + ~1 s
+  amortized boot ≈ 8 s → ~10 k RT items / 24 h on one instance; measured
+  38 s for 8 items (7 RT + 1 NRT) at n_cycles=1. NRT items ≈ 3–4 s
+  (sclang spawn per item). The default `size: 1000` synth-mode dataset
+  fits in ~2.5 h, well inside SC-010's 24 h budget. Parallel fleets of
+  SuperDirt instances (distinct OSC/server ports + null sinks) are the
+  obvious scale-out if needed.

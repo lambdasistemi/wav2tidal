@@ -75,7 +75,67 @@ def main() -> int:
             print("FAIL: RT render silent or missing FX tail", file=sys.stderr)
             return 1
 
-    print("PASS: SuperDirt NRT (deterministic) + real-time FX capture both work.")
+        # Stage 3 — multi-event NRT score, seeded determinism incl. a
+        # noise-carrying def (superkick's WhiteNoise click) — issue #21.
+        from wav2tidal.io.superdirt import nrt_render_events, rt_render_batch
+
+        ev_a, ev_b = Path(td) / "ev_a.wav", Path(td) / "ev_b.wav"
+        events = [
+            (0.0, "supersaw", {"freq": 220.0, "sustain": 1.0}),
+            (1.0, "superkick", {"n": 5.0, "sustain": 0.5}),
+        ]
+        try:
+            nrt_render_events(events, 2.0, ev_a)
+            nrt_render_events(events, 2.0, ev_b)
+        except RuntimeError as e:
+            print(f"FAIL (nrt events): {e}", file=sys.stderr)
+            return 1
+        if _md5(ev_a) != _md5(ev_b):
+            print("FAIL: seeded multi-event NRT not deterministic", file=sys.stderr)
+            return 1
+        print("  NRT events: multi-event + noise def deterministic OK")
+
+        # Stage 4 — RT batch (one boot, several jobs) + the global-delay
+        # workaround: the delayed job must ring past the dry control.
+        dly, dry = Path(td) / "dly.wav", Path(td) / "dry.wav"
+        note = {"note": 0.0, "sustain": 1.0}
+        try:
+            rt_render_batch(
+                [
+                    (
+                        dly,
+                        4.0,
+                        [
+                            (
+                                0.0,
+                                "superchip",
+                                dict(note, delaytime=0.35, delayfeedback=0.7),
+                            )
+                        ],
+                    ),
+                    (dry, 4.0, [(0.0, "superchip", dict(note))]),
+                ]
+            )
+        except RuntimeError as e:
+            print(f"FAIL (rt batch): {e}", file=sys.stderr)
+            return 1
+
+        def tail_rms(p: Path) -> float:
+            y, sr = sf.read(str(p))
+            e = abs(y).mean(axis=1) if y.ndim > 1 else abs(y)
+            seg = e[int(1.2 * sr) : int(3.5 * sr)]
+            return float(np.sqrt(np.mean(seg**2)))
+
+        t_dly, t_dry = tail_rms(dly), tail_rms(dry)
+        print(f"  RT batch: delay tail rms={t_dly:.4f} dry tail rms={t_dry:.4f}")
+        if t_dly < 10 * max(t_dry, 1e-6) or t_dly < 0.01:
+            print("FAIL: global delay tail missing in RT batch", file=sys.stderr)
+            return 1
+
+    print(
+        "PASS: NRT (deterministic, multi-event) + RT capture"
+        " + batch with global FX all work."
+    )
     return 0
 
 
