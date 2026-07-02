@@ -1,0 +1,15 @@
+site_name: wav2tidal
+site_description: Learn musical style from WAV corpora and drive TidalCycles live
+repo_url: https://github.com/lambdasistemi/wav2tidal
+theme:
+  name: material
+  palette:
+    scheme: slate
+  features:
+    - navigation.sections
+    - content.code.copy
+markdown_extensions:
+  - admonition
+  - pymdownx.superfences
+nav:
+  - Home: index.md
