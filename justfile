@@ -28,6 +28,11 @@ fetch-models:
 smoke-gpu:
     python tests/smoke/smoke_gpu.py
 
+# T035 ByT5 fine-tune — run in the training shell: nix develop .#training -c just train
+# Needs a synth-mode dataset first (wav2tidal dataset with mode: synth).
+train root=".":
+    python -m wav2tidal.cli train --root {{root}} --config configs/train.yaml
+
 # Audio-path smoke gate — tier-1 NRT synth render. Needs SuperCollider+SuperDirt;
 # set WAV2TIDAL_SCLANG and WAV2TIDAL_SUPERDIRT_QUARK. Not in CI.
 smoke-audio:

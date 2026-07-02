@@ -98,6 +98,44 @@ class DatasetConfig:
         return asdict(self)
 
 
+@dataclass(frozen=True)
+class TrainConfig:
+    """Knobs for ByT5 fine-tuning (T035, FR-015). See configs/train.yaml."""
+
+    dataset: str = "synth_n400_seed0"  # datasets/<id> under the root
+    model_name: str = "google/byt5-small"
+    revision: str = "68377bdc18a2ffec8a0533fef03b1c513a4dd49d"  # byt5-small pin
+    epochs: int = 10
+    batch_size: int = 8
+    lr: float = 3e-4
+    max_input_len: int = 96
+    max_target_len: int = 768
+    val_fraction: float = 0.1
+    seed: int = 0
+    out_dir: str = "checkpoints/byt5"
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> TrainConfig:
+        known = {f.name for f in fields(cls)}
+        unknown = set(data) - known
+        if unknown:
+            raise ValueError(f"unknown train config keys: {sorted(unknown)}")
+        return cls(**data)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+def load_train_config(path: str | Path | None) -> TrainConfig:
+    if path is None:
+        return TrainConfig()
+    import yaml
+
+    with open(path) as fh:
+        data = yaml.safe_load(fh) or {}
+    return TrainConfig.from_dict(data)
+
+
 def load_dataset_config(path: str | Path | None) -> DatasetConfig:
     if path is None:
         return DatasetConfig()

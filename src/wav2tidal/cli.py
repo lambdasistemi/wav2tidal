@@ -110,10 +110,40 @@ def _run_dataset(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_train(args: argparse.Namespace) -> int:
+    from .core.config import load_train_config
+    from .train.trainer import train_model
+
+    try:
+        cfg = load_train_config(args.config)
+        if args.seed is not None:
+            cfg = cfg.__class__.from_dict({**cfg.to_dict(), "seed": args.seed})
+        out = train_model(Path(getattr(args, "root", ".") or "."), cfg)
+    except (ValueError, FileNotFoundError) as e:
+        print(f"train: {e}", file=sys.stderr)
+        return 1
+    print(f"checkpoint + eval.json at {out}")
+    return 0
+
+
+def _run_eval(args: argparse.Namespace) -> int:
+
+    path = Path(args.checkpoint or "checkpoints/byt5") / "eval.json"
+    if not path.exists():
+        print(
+            f"eval: no report at {path} — run `wav2tidal train` first", file=sys.stderr
+        )
+        return 1
+    print(path.read_text())
+    return 0
+
+
 _HANDLERS = {
     "ingest": _run_ingest,
     "profile": _run_profile,
     "dataset": _run_dataset,
+    "train": _run_train,
+    "eval": _run_eval,
 }
 
 
@@ -169,7 +199,7 @@ def build_parser() -> argparse.ArgumentParser:
             "train",
             "T035",
             "fine-tune ByT5 descriptor->pattern model",
-            [opt("--config"), seed],
+            [opt("--config"), opt("--root", default="."), seed],
         ),
         ("eval", "T036", "produce held-out evaluation report", [opt("--checkpoint")]),
         (

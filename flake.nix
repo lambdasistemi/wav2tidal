@@ -79,11 +79,13 @@
             (pyRocm.withPackages (
               ps: with ps; [
                 torch
-                transformers # Seq2SeqTrainer for ByT5 (no trl needed for seq2seq)
+                transformers # ByT5 seq2seq (no trl/accelerate: manual loop)
                 datasets
                 soundfile
                 librosa
                 numpy
+                lark # grammar membership for the eval validity metrics
+                pyyaml # configs/train.yaml
               ]
             ))
           ] ++ commonTools;
