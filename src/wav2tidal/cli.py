@@ -95,14 +95,15 @@ def _run_profile(args: argparse.Namespace) -> int:
 
 def _run_dataset(args: argparse.Namespace) -> int:
     from .core.config import load_dataset_config
-    from .pipeline.dataset import synth_dataset
+    from .pipeline.dataset import config_dataset, synth_dataset
 
     cfg = load_dataset_config(args.config)
     if args.seed is not None:
         cfg = cfg.__class__.from_dict({**cfg.to_dict(), "seed": args.seed})
+    run = config_dataset if cfg.mode == "synth" else synth_dataset
     try:
-        result = synth_dataset(Path(args.root), cfg)
-    except ValueError as e:
+        result = run(Path(args.root), cfg)
+    except (ValueError, RuntimeError) as e:
         print(f"dataset: {e}", file=sys.stderr)
         return 1
     print(f"wrote {result.n_pairs} pairs to {result.path}")

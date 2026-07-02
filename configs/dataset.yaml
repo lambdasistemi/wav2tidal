@@ -15,3 +15,15 @@ hop_length: 512
 # Pattern complexity bounds (validator, FR-009).
 max_events_per_cycle: 64
 max_nesting_depth: 4
+
+# v2 synth path (design-change-001, issue #21).
+# mode: "slices" = v1 sample patterns, pure numpy render (CI-safe);
+#       "synth"  = grammar-v2 configs routed per config to the cheapest
+#                  faithful renderer (mix / NRT / RT). NRT+RT need
+#                  SuperCollider+SuperDirt (WAV2TIDAL_SCLANG,
+#                  WAV2TIDAL_SUPERDIRT_QUARK) — local only, never CI.
+mode: "slices"
+# Seconds rendered past the last cycle (synth release + reverb/delay tails).
+tail_seconds: 2.0
+# RT jobs per booted SuperDirt; boot (~15 s) is amortized across the batch.
+rt_batch_size: 16
