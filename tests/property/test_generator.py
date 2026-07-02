@@ -1,13 +1,19 @@
-"""Generator + mutation validity and determinism (T026)."""
+"""Generator + mutation validity and determinism (T026 + grammar v2)."""
 
 from __future__ import annotations
 
 import random
 
-from wav2tidal.core.pattern.generate import generate_pattern, mutate
-from wav2tidal.core.pattern.validate import validate
+from wav2tidal.core.pattern.generate import (
+    generate_config,
+    generate_pattern,
+    mutate,
+    mutate_config,
+)
+from wav2tidal.core.pattern.validate import Sources, validate
 
 BANKS = {"bd": 4, "sn": 2, "hh": 8}
+SOURCES = Sources(banks=BANKS, custom=frozenset({"mydef"}))
 
 
 def test_generated_patterns_always_valid():
@@ -42,3 +48,45 @@ def test_generate_without_banks_raises():
 
     with pytest.raises(ValueError):
         generate_pattern(random.Random(0), {})
+
+
+# -- grammar-v2 config space -------------------------------------------------
+
+
+def test_generated_configs_always_valid():
+    rng = random.Random(0)
+    for _ in range(300):
+        p = generate_config(rng, SOURCES)
+        v = validate(p, SOURCES)
+        assert v.valid, (p.to_text(), v.reason)
+
+
+def test_config_generation_is_deterministic_from_seed():
+    a = [generate_config(random.Random(7), SOURCES) for _ in range(10)]
+    b = [generate_config(random.Random(7), SOURCES) for _ in range(10)]
+    assert [p.to_text() for p in a] == [p.to_text() for p in b]
+
+
+def test_config_space_covers_all_source_kinds():
+    rng = random.Random(1)
+    texts = " ".join(generate_config(rng, SOURCES).to_text() for _ in range(200))
+    assert "super" in texts  # synth palette
+    assert "bd" in texts  # corpus samples through FX
+    assert "mydef" in texts  # custom synthdefs
+
+
+def test_config_mutations_stay_valid():
+    rng = random.Random(2)
+    p = generate_config(rng, SOURCES)
+    for _ in range(300):
+        p = mutate_config(rng, p, SOURCES)
+        v = validate(p, SOURCES)
+        assert v.valid, (p.to_text(), v.reason)
+    assert p.source == "mutation"
+
+
+def test_generate_config_without_sources_raises():
+    import pytest
+
+    with pytest.raises(ValueError):
+        generate_config(random.Random(0), Sources(banks={}, synths=frozenset()))
