@@ -49,8 +49,14 @@ def train_model(root: str | Path, cfg: TrainConfig) -> Path:
     model = T5ForConditionalGeneration.from_pretrained(
         cfg.model_name, revision=cfg.revision
     )
-    model = model.to(device, dtype=torch.bfloat16).train()
+    # fp32 master weights + bf16 autocast for compute: a full bf16 cast
+    # silently drops optimizer updates below one bf16 ulp and training
+    # plateaus (observed: train loss stuck ~0.79 while underfitting).
+    model = model.to(device).train()
     opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr)
+    autocast = torch.autocast(
+        device_type="cuda", dtype=torch.bfloat16, enabled=device == "cuda"
+    )
 
     def encode(rows: list[dict]):
         enc = tok(
@@ -80,13 +86,14 @@ def train_model(root: str | Path, cfg: TrainConfig) -> Path:
             batch = [train_rows[i] for i in order[start : start + cfg.batch_size]]
             ids, mask, labels = encode(batch)
             opt.zero_grad()
-            out = model(input_ids=ids, attention_mask=mask, labels=labels)
+            with autocast:
+                out = model(input_ids=ids, attention_mask=mask, labels=labels)
             out.loss.backward()
             opt.step()
             losses.append(float(out.loss.item()))
         train_loss = sum(losses) / len(losses)
         model.eval()
-        with torch.no_grad():
+        with torch.no_grad(), autocast:
             ids, mask, labels = encode(val_rows)
             val_loss = float(
                 model(input_ids=ids, attention_mask=mask, labels=labels).loss.item()
@@ -98,7 +105,7 @@ def train_model(root: str | Path, cfg: TrainConfig) -> Path:
     # greedy decode on the held-out rows -> the FR-015 validity metrics
     model.eval()
     outputs = []
-    with torch.no_grad():
+    with torch.no_grad(), autocast:
         for start in range(0, len(val_rows), cfg.batch_size):
             batch = val_rows[start : start + cfg.batch_size]
             enc = tok(
@@ -150,12 +157,13 @@ def generate_config_text(
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     tok = AutoTokenizer.from_pretrained(checkpoint)
-    model = (
-        T5ForConditionalGeneration.from_pretrained(checkpoint)
-        .to(device, dtype=torch.bfloat16)
-        .eval()
-    )
+    model = T5ForConditionalGeneration.from_pretrained(checkpoint).to(device).eval()
     enc = tok([descriptor], return_tensors="pt").to(device)
-    with torch.no_grad():
+    with (
+        torch.no_grad(),
+        torch.autocast(
+            device_type="cuda", dtype=torch.bfloat16, enabled=device == "cuda"
+        ),
+    ):
         gen = model.generate(**enc, max_new_tokens=max_new_tokens, do_sample=False)
     return tok.batch_decode(gen, skip_special_tokens=True)[0]
