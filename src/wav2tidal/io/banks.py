@@ -13,7 +13,22 @@ from pathlib import Path
 
 import numpy as np
 
-from .wav import write_wav
+from ..core.render.mixdown import Banks
+from .wav import read_wav, write_wav
+
+
+def load_banks(banks_root: Path, sr: int) -> Banks:
+    """Load an ingested banks/ tree into an in-memory ``Banks`` for rendering.
+
+    Bank name = folder basename; slices are the alphabetically-sorted wavs
+    (that order is the ``:n`` index, R5). Files are resampled to ``sr``.
+    """
+    data: dict[str, list[np.ndarray]] = {}
+    for bank_dir in sorted(p for p in banks_root.iterdir() if p.is_dir()):
+        wavs = sorted(bank_dir.glob("*.wav"))
+        if wavs:
+            data[bank_dir.name] = [read_wav(w, sr).y for w in wavs]
+    return Banks(sr=sr, data=data)
 
 
 def slice_filename(index: int, source_stem: str) -> str:

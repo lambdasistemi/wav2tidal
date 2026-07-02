@@ -93,7 +93,27 @@ def _run_profile(args: argparse.Namespace) -> int:
     return 0
 
 
-_HANDLERS = {"ingest": _run_ingest, "profile": _run_profile}
+def _run_dataset(args: argparse.Namespace) -> int:
+    from .core.config import load_dataset_config
+    from .pipeline.dataset import synth_dataset
+
+    cfg = load_dataset_config(args.config)
+    if args.seed is not None:
+        cfg = cfg.__class__.from_dict({**cfg.to_dict(), "seed": args.seed})
+    try:
+        result = synth_dataset(Path(args.root), cfg)
+    except ValueError as e:
+        print(f"dataset: {e}", file=sys.stderr)
+        return 1
+    print(f"wrote {result.n_pairs} pairs to {result.path}")
+    return 0
+
+
+_HANDLERS = {
+    "ingest": _run_ingest,
+    "profile": _run_profile,
+    "dataset": _run_dataset,
+}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -131,7 +151,12 @@ def build_parser() -> argparse.ArgumentParser:
             "dataset",
             "T033",
             "synthesize (descriptor -> pattern) pairs",
-            [opt("--config"), seed, opt("--resume", action="store_true")],
+            [
+                opt("--config"),
+                opt("--root", default="."),
+                seed,
+                opt("--resume", action="store_true"),
+            ],
         ),
         (
             "smoke-gpu",

@@ -59,3 +59,38 @@ def load_ingest_config(path: str | Path | None) -> IngestConfig:
     with open(path) as fh:
         data = yaml.safe_load(fh) or {}
     return IngestConfig.from_dict(data)
+
+
+@dataclass(frozen=True)
+class DatasetConfig:
+    """Knobs for synthetic (descriptor -> pattern) dataset generation (FR-014)."""
+
+    size: int = 1000
+    seed: int = 0
+    cps: float = 0.5  # cycles/second (~120 BPM at 4 beats/cycle)
+    n_cycles: int = 2
+    target_sr: int = DEFAULT_TARGET_SR
+    hop_length: int = 512
+    max_events_per_cycle: int = 64
+    max_nesting_depth: int = 4
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> DatasetConfig:
+        known = {f.name for f in fields(cls)}
+        unknown = set(data) - known
+        if unknown:
+            raise ValueError(f"unknown dataset config keys: {sorted(unknown)}")
+        return cls(**data)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+def load_dataset_config(path: str | Path | None) -> DatasetConfig:
+    if path is None:
+        return DatasetConfig()
+    import yaml
+
+    with open(path) as fh:
+        data = yaml.safe_load(fh) or {}
+    return DatasetConfig.from_dict(data)
