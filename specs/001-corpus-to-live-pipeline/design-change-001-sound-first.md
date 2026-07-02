@@ -104,23 +104,34 @@ cannot render the full sonic chain**. Therefore:
 
 ## Reshaped US2 task plan (supersedes tasks.md US2 for the synth path)
 
+> **Execution note (2026-07-02).** The renderers were built *before*
+> grammar v2 (each renderer proof was the riskier unknown), so the
+> executed US2-synth-N numbering in issues/PRs differs from the original
+> draft below: renderers became -1/-2 and grammar v2 became -3. The list
+> below is updated to the executed order, with status and issue links.
+
 - **US2a (MERGED, PR #6)** — pattern engine (grammar, generator, validator,
   scheduler, numpy mixer). Reused as scaffolding; grammar → v2 next.
 - **GPU gate (MERGED, PR #7)** — ByT5 training on gfx1151 proven.
-- **US2-synth-1 — audio-path smoke gate** *(new, do first)*: prove
-  real-time capture through booted SuperDirt (sclang-with-superdirt +
-  PipeWire monitor + `pw-record`). Also confirm a real `supersaw` renders
-  via NRT (the one remaining tier-1 NEEDS-HARDWARE-TEST). Nix: pin the
-  SuperDirt derivation.
-- **US2-synth-2 — grammar v2 + generator + validator**: synths + params +
-  FX action space from the R7 table; seeded valid-by-construction configs.
-- **US2-synth-3 — renderers**: tier-1 deterministic NRT (subset) + RT
-  SuperDirt capture (full chain), behind one `render(config) → audio`
-  interface.
-- **US2-synth-4 — dataset**: (captured-audio descriptor → synth+param
-  config) pairs; seeded generator, tolerance-based reproducibility.
-- **US2-synth-5 — ByT5 Seq2SeqTrainer + eval + generate** (GPU training
-  shell, gated by `smoke-gpu`).
+- **US2-synth-1 — NRT renderer + audio smoke gate (DONE — issue #9,
+  PR #10)**: a real `supersaw` renders headless + deterministic via
+  `Score.recordNRT` (closed the tier-1 NEEDS-HARDWARE-TEST); `just
+  smoke-audio` gates it. The SuperDirt/sclang flake pinning from this
+  step's scope is still pending → **issue #23**.
+- **US2-synth-2 — RT capture renderer (DONE — issue #11, PR #12)**:
+  real-time capture of the full chain incl. global FX through a booted
+  SuperDirt (`/dirt/play` → orbit bus record → PipeWire null sink).
+- **US2-synth-3 — grammar v2 + generator + validator (DONE — issue #13,
+  PR #20)**: synths + params + FX action space from the R7 table
+  (`contracts/params-v2.md`, `core/pattern/params.py`); grammar v2.0.0
+  governs the full Tidal line; seeded valid-by-construction configs;
+  config → renderer params mapping (`core/pattern/dirt.py`). Follow-up:
+  chain per-event `dirt_*` FX into the NRT score → **issue #24**.
+- **US2-synth-4 — dataset (NEXT — issue #21)**: (captured-audio
+  descriptor → synth+param config) pairs via both renderers; seeded
+  generator, tolerance-based reproducibility.
+- **US2-synth-5 — ByT5 Seq2SeqTrainer + eval + generate (issue #22,
+  blocked by #21)** (GPU training shell, gated by `smoke-gpu`).
 
 US3 (live evolution) then reuses the same SuperDirt engine, grammar v2,
 capture, and scoring; the action space is the continuous param vector
