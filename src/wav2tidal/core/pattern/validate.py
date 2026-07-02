@@ -15,9 +15,18 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from ..render.schedule import schedule_events
-from .grammar import LarkError, bank_refs, nesting_depth, parse_line
-from .model import Pattern
-from .params import SYNTH_NAMES, applicable, check_value
+from .grammar import LarkError, bank_refs, nesting_depth, parse_line, parse_scene
+from .model import Pattern, Scene
+from .params import (
+    GLOBAL,
+    PARAMS,
+    SYNTH_NAMES,
+    applicable,
+    check_value,
+    effective_range,
+    modulatable,
+)
+from .shapes import valid_args
 
 # The :INT selector on a synth or custom source is its `n` knob, not a
 # sample index — bounded, like the `n` param spec.
@@ -120,3 +129,74 @@ def validate(
             depth,
         )
     return Verdict(True, None, n_events, depth)
+
+
+# -- Parameter scenes (grammar v3, design-change-002) ------------------------
+
+
+@dataclass(frozen=True)
+class SceneBounds:
+    max_voices: int = 4
+    max_mods_per_voice: int = 4
+    pattern: PatternBounds = field(default_factory=PatternBounds)  # the layer
+
+
+def validate_scene(
+    scene: Scene,
+    sources: Sources | dict[str, int],
+    bounds: SceneBounds | None = None,
+) -> Verdict:
+    """Validate a scene: grammar-v3 membership of its text, voice sources
+    (synth/custom only — banks live in the layer), static-control and
+    trajectory applicability + ranges, shape validity, and bounds. The
+    layer is validated as a v2 pattern over the same inventory."""
+    if isinstance(sources, dict):
+        sources = Sources.banks_only(sources)
+    bounds = bounds or SceneBounds()
+    try:
+        parse_scene(scene.to_text())
+    except LarkError as e:
+        return Verdict(False, f"syntax: {e.__class__.__name__}")
+
+    if not 1 <= len(scene.voices) <= bounds.max_voices:
+        return Verdict(False, f"{len(scene.voices)} voices exceed {bounds.max_voices}")
+
+    for voice in scene.voices:
+        name = voice.source_name
+        if name not in sources.synths and name not in sources.custom:
+            return Verdict(False, f"unknown voice source: {name}")
+        if voice.n > _MAX_SOURCE_N:
+            return Verdict(False, f"n {voice.n} out of range for {name}")
+        for key, value in voice.controls.items():
+            if not applicable(key, {name}):
+                return Verdict(False, f"control {key!r} not applicable to {name}")
+            if not check_value(key, value, {name}):
+                return Verdict(False, f"control {key!r} = {value!r} out of range")
+        if len(voice.mods) > bounds.max_mods_per_voice:
+            return Verdict(
+                False, f"{len(voice.mods)} mods exceed {bounds.max_mods_per_voice}"
+            )
+        seen: set[str] = set()
+        for mod in voice.mods:
+            if not modulatable(mod.param):
+                return Verdict(False, f"param {mod.param!r} is not modulatable")
+            spec = PARAMS[mod.param]
+            if mod.param in seen or mod.param in voice.controls:
+                return Verdict(False, f"param {mod.param!r} set twice on {name}")
+            seen.add(mod.param)
+            if spec.scope != GLOBAL and not applicable(mod.param, {name}):
+                return Verdict(False, f"mod {mod.param!r} not applicable to {name}")
+            lo, hi = effective_range(mod.param, {name})
+            if not valid_args(mod.shape, mod.args, lo, hi):
+                return Verdict(
+                    False,
+                    f"mod {mod.param!r} {mod.shape} args {mod.args} invalid"
+                    f" for range ({lo:g}, {hi:g})",
+                )
+
+    if scene.layer is not None:
+        layer_verdict = validate(scene.layer, sources, bounds.pattern)
+        if not layer_verdict.valid:
+            return Verdict(False, f"layer: {layer_verdict.reason}")
+        return layer_verdict
+    return Verdict(True, None)
