@@ -32,5 +32,11 @@ def test_all_stages_present():
 
 def test_unimplemented_stage_exits_2():
     parser = build_parser()
-    args = parser.parse_args(["train", "--config", "x.yaml"])
+    args = parser.parse_args(["live"])
     assert args.handler(args) == 2
+
+
+def test_train_with_missing_config_errors_cleanly():
+    parser = build_parser()
+    args = parser.parse_args(["train", "--config", "nosuch.yaml"])
+    assert args.handler(args) == 1

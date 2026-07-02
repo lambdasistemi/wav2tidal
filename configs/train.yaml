@@ -1,0 +1,15 @@
+# wav2tidal ByT5 training configuration (T035). Committed and editable.
+# Run inside the GPU shell:  nix develop .#training -c just train
+# See src/wav2tidal/core/config.py:TrainConfig for the full field list.
+
+dataset: "synth_n400_seed0"
+model_name: "google/byt5-small"
+revision: "68377bdc18a2ffec8a0533fef03b1c513a4dd49d"  # byt5-small, resolved 2026-07-02
+epochs: 10
+batch_size: 8
+lr: 0.0003
+max_input_len: 96
+max_target_len: 768
+val_fraction: 0.1
+seed: 0
+out_dir: "checkpoints/byt5"
