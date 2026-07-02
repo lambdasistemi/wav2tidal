@@ -105,7 +105,7 @@ class TrainConfig:
     dataset: str = "synth_n400_seed0"  # datasets/<id> under the root
     model_name: str = "google/byt5-small"
     revision: str = "68377bdc18a2ffec8a0533fef03b1c513a4dd49d"  # byt5-small pin
-    epochs: int = 10
+    epochs: int = 40
     batch_size: int = 8
     lr: float = 3e-4
     max_input_len: int = 96
