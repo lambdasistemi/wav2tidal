@@ -73,6 +73,13 @@ class DatasetConfig:
     hop_length: int = 512
     max_events_per_cycle: int = 64
     max_nesting_depth: int = 4
+    # v2 synth path (design-change-001, issue #21):
+    # "slices" = v1 sample patterns, pure numpy render (CI-safe);
+    # "synth"  = grammar-v2 configs routed per-config to mix/NRT/RT
+    #            (needs SuperCollider + SuperDirt for the NRT/RT part).
+    mode: str = "slices"
+    tail_seconds: float = 2.0  # render past the last cycle (release/FX tails)
+    rt_batch_size: int = 16  # RT jobs per booted SuperDirt (boot ~15 s amortized)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> DatasetConfig:

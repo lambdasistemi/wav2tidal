@@ -1,10 +1,20 @@
-"""Synthetic dataset generation (T033, FR-014).
+"""Synthetic dataset generation (T033, FR-014 + design-change-001).
 
-Generates seeded (style-descriptor-text -> pattern-text) pairs: sample a
-valid pattern over the ingested banks, render it offline, describe the
-render, and pair the description with the pattern. Deterministic from
-(config, seed) — regenerating yields byte-identical pairs (SC-008) — and
-the config is embedded in the artifact.
+Generates seeded (style-descriptor-text -> config-text) pairs: sample a
+valid config, render it, describe the audio, and pair the description
+with the config text.
+
+Two modes (``DatasetConfig.mode``):
+
+- ``slices`` (v1, ``synth_dataset``): sample patterns over the ingested
+  banks, pure numpy mixdown. Byte-deterministic from (config, seed)
+  (SC-008); CI-safe.
+- ``synth`` (v2, ``config_dataset``, issue #21): grammar-v2 configs over
+  the Super* palette + banks, routed per config to the cheapest faithful
+  renderer (numpy mix / headless NRT / booted-SuperDirt RT capture — see
+  ``core.pattern.dirt.route``). Config *text* stays byte-deterministic
+  from the seed; RT audio (and hence descriptors) is reproducible only
+  within tolerance (SC-008 relaxation recorded in the artifact).
 
 The descriptor text is the ByT5 model's input surface (T035); keep it
 stable and bucketed so the mapping is learnable.
@@ -14,6 +24,7 @@ from __future__ import annotations
 
 import json
 import random
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -21,12 +32,14 @@ import numpy as np
 
 from ..core.config import DatasetConfig
 from ..core.dsp.features import estimate_key, estimate_tempo, onset_rate
-from ..core.pattern.generate import Diversity, generate_pattern
-from ..core.pattern.validate import PatternBounds, validate
+from ..core.pattern.dirt import MIX, NRT, RT, render_events, route
+from ..core.pattern.generate import Diversity, generate_config, generate_pattern
+from ..core.pattern.validate import PatternBounds, Sources, validate
 from ..core.render.mixdown import Banks, render
 from ..core.render.schedule import schedule_events
 from ..io.banks import load_banks
 from ..io.storage import Workspace
+from ..io.wav import read_wav, write_wav
 
 _DENSITY_EDGES = (2.0, 6.0)  # onsets/sec -> lo / mid / hi
 _BRIGHT_EDGES = (1500.0, 3000.0, 5000.0, 7000.0)  # spectral centroid Hz -> 1..5
@@ -59,7 +72,7 @@ class DatasetResult:
 
 
 def dataset_id(cfg: DatasetConfig) -> str:
-    return f"n{cfg.size}_seed{cfg.seed}"
+    return f"{cfg.mode}_n{cfg.size}_seed{cfg.seed}"
 
 
 def synth_dataset(root: Path, cfg: DatasetConfig) -> DatasetResult:
@@ -101,3 +114,148 @@ def synth_dataset(root: Path, cfg: DatasetConfig) -> DatasetResult:
         json.dumps(cfg.to_dict(), indent=2, sort_keys=True)
     )
     return DatasetResult(path=out_dir, n_pairs=n)
+
+
+# -- v2 synth-path dataset (design-change-001, issue #21) --------------------
+
+# SC-008 relaxation, embedded verbatim in every synth-mode artifact.
+_REPRODUCIBILITY = {
+    "config_text": "byte-deterministic from (config, seed)",
+    MIX: "audio byte-deterministic",
+    NRT: "audio byte-deterministic (scsynth NRT; seeded where defs carry RNG)",
+    RT: (
+        "audio reproducible within tolerance only (live SuperDirt capture; "
+        "global FX use server RNG, scheduling is wall-clock) — expect "
+        "descriptor buckets to match on re-render, not bytes"
+    ),
+}
+
+# Renderer callables, injectable for pure tests:
+#   rt_batch(jobs, banks_dir=...) -> list[Path]   (io.superdirt.rt_render_batch)
+#   nrt_events(events, seconds, out) -> Path      (io.superdirt.nrt_render_events)
+RtBatch = Callable[..., list[Path]]
+NrtEvents = Callable[..., Path]
+
+
+def config_dataset(
+    root: Path,
+    cfg: DatasetConfig,
+    *,
+    sources: Sources | None = None,
+    rt_batch: RtBatch | None = None,
+    nrt_events: NrtEvents | None = None,
+) -> DatasetResult:
+    """Generate (captured-audio descriptor -> grammar-v2 config) pairs.
+
+    Configs are sampled first (pure, byte-deterministic from the seed),
+    routed per config to the cheapest faithful renderer, rendered (RT jobs
+    batched through one booted SuperDirt per ``rt_batch_size``), then
+    described. Rendered audio is kept under ``audio/`` as the pairs'
+    provenance. Pair order is generation order, so ``pairs.jsonl``'s
+    ``output`` column is identical across re-runs; ``input`` is exact for
+    mix/NRT rows and tolerance-reproducible for RT rows.
+    """
+    ws = Workspace(root)
+    banks = (
+        load_banks(ws.banks, cfg.target_sr)
+        if ws.banks.is_dir()
+        else Banks(sr=cfg.target_sr, data={})
+    )
+    inv = banks.inventory()
+    sources = sources or Sources(banks=inv)
+
+    rng = random.Random(cfg.seed)
+    bounds = PatternBounds(cfg.max_events_per_cycle, cfg.max_nesting_depth)
+    total_seconds = cfg.n_cycles / cfg.cps + cfg.tail_seconds
+
+    items = []
+    while len(items) < cfg.size:
+        pattern = generate_config(rng, sources)
+        if not validate(pattern, sources, bounds).valid:
+            continue  # generator is valid by construction; belt and braces
+        items.append((pattern, route(pattern, sources)))
+
+    out_dir = root / "datasets" / dataset_id(cfg)
+    audio_dir = out_dir / "audio"
+    audio_dir.mkdir(parents=True, exist_ok=True)
+
+    audio: dict[int, np.ndarray] = {}
+    rt_jobs: list[tuple[int, Path]] = []
+    for i, (pattern, mode) in enumerate(items):
+        wav_path = audio_dir / f"{i:05d}.wav"
+        if mode == MIX:
+            events = schedule_events(pattern, cfg.cps, cfg.n_cycles)
+            audio[i] = render(events, banks, total_seconds, cfg.target_sr)
+            write_wav(wav_path, audio[i], cfg.target_sr)
+        elif mode == NRT:
+            fn = nrt_events or _default_nrt_events()
+            fn(
+                render_events(pattern, sources, cfg.cps, cfg.n_cycles, NRT),
+                total_seconds,
+                wav_path,
+            )
+        else:
+            rt_jobs.append((i, wav_path))
+
+    fn = rt_batch or _default_rt_batch()
+    banks_dir = ws.banks if inv else None
+    for chunk_start in range(0, len(rt_jobs), cfg.rt_batch_size):
+        chunk = rt_jobs[chunk_start : chunk_start + cfg.rt_batch_size]
+        fn(
+            [
+                (
+                    path,
+                    total_seconds,
+                    render_events(items[i][0], sources, cfg.cps, cfg.n_cycles, RT),
+                )
+                for i, path in chunk
+            ],
+            banks_dir=banks_dir,
+        )
+
+    n = 0
+    with open(out_dir / "pairs.jsonl", "w") as fh:
+        for i, (pattern, mode) in enumerate(items):
+            y = audio.get(i)
+            if y is None:
+                y = read_wav(audio_dir / f"{i:05d}.wav", cfg.target_sr).y
+            fh.write(
+                json.dumps(
+                    {
+                        "input": descriptor_text(y, cfg.target_sr, cfg.hop_length),
+                        "output": pattern.to_text(),
+                        "renderer": mode,
+                    }
+                )
+                + "\n"
+            )
+            n += 1
+
+    (out_dir / "config.json").write_text(
+        json.dumps(
+            {
+                **cfg.to_dict(),
+                "sources": {
+                    "banks": inv,
+                    "synths": sorted(sources.synths),
+                    "custom": sorted(sources.custom),
+                },
+                "reproducibility": _REPRODUCIBILITY,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    return DatasetResult(path=out_dir, n_pairs=n)
+
+
+def _default_rt_batch() -> RtBatch:
+    from ..io.superdirt import rt_render_batch
+
+    return rt_render_batch
+
+
+def _default_nrt_events() -> NrtEvents:
+    from ..io.superdirt import nrt_render_events
+
+    return nrt_render_events
