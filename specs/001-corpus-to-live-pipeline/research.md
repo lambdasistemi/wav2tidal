@@ -327,6 +327,9 @@ synth+per-event subset.
 - Full param vocabulary + routing order + ranges (cutoff/resonance/hcutoff/
   bandf/shape/crush/coarse/vowel/attack/release/… + supersaw voice/detune/
   lfo, global room/size/delaytime/delayfeedback) — VERIFIED (synth source).
+  Encoded as the grammar-v2 action space: table + provenance in
+  `contracts/params-v2.md`, semantics in `core/pattern/params.py`, syntax
+  in `grammar/pattern_subset.lark` v2.0.0 (issue #13).
 - Live control `/ctrl name value` → **Tidal:6010** (`cF`/`cS`/`cI`), which
   forwards to SuperDirt:57120 — VERIFIED (corrects R5: 6010 is Tidal, not
   SuperDirt).

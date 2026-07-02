@@ -1,30 +1,42 @@
-// wav2tidal pattern-subset grammar (FR-008), v1.0.0.
+// wav2tidal pattern-subset grammar (FR-008), v2.0.0.
 //
-// The single source of truth for the mini-notation subset shared by the
-// procedural generator (T030), the validator (T029), and — later — the
-// grammar-constrained decoder (T034). Never fork it: all three parse or
-// emit exactly this language.
+// The single source of truth for the config language shared by the
+// procedural generator, the validator, and — later — the grammar-
+// constrained decoder. Never fork it: all three parse or emit exactly
+// this language. Semantics (ranges, scopes, per-synth applicability)
+// live in core/pattern/params.py; a unit test keeps the two vocabularies
+// in sync.
 //
-// Scope (v1): a single-channel sequence of sample events over one cycle,
-// built from ingested SuperDirt banks. Supported constructs (research R5):
-//   sequence      a b c
-//   rest          ~
-//   sample event  bank            (index 0)
-//                 bank:3          (explicit :n selector)
-//   group         [a b]           (subdivide the step equally)
-//   fast / slow   a*2  a/2
-//   euclid        bank(3,8)       (Euclidean rhythm)
-//   stack         [a b, c d]      (polyphony, ',' inside a group)
+// v2 (design-change-001 sound-first, research R7) extends v1 in two ways:
 //
-// Deferred to a later version (documented, not silently missing):
-//   <a b> per-cycle alternation, ? randomness, ! replicate, @ elongate,
-//   polymeter {a b, c d e}, and function combinators (every/jux/chunk).
+// 1. The grammar now governs the FULL Tidal line (`line` start rule), not
+//    just the mini-notation — the constrained decoder must emit the whole
+//    config string. The v1 mini-notation rules are unchanged (`mini`
+//    start rule; the scheduler still parses that subtree alone).
 //
-// The outer Tidal line `d1 $ s "<this>" # gain _ # speed _` and its control
-// suffixes are handled structurally by the pattern (de)serializer; this
-// grammar governs the mini-notation string only.
+// 2. Sources and controls span the synth+FX action space:
+//      sources    Super* synth | sample bank | custom synthdef — all are
+//                 NAME(:INT) events; which names exist is semantic
+//                 (validator inventory), not syntactic.
+//      controls   `# param value` suffixes: core (note/n/gain/pan/speed/
+//                 accelerate/attack/release), per-event FX (cutoff/
+//                 resonance/hcutoff/hresonance/bandf/bandq/shape/crush/
+//                 coarse), synth params (voice/semitone/lfo/pitch1/pitch2/
+//                 pitch3/rate/decay/detune/slide/velocity/muffle/stereo/
+//                 modamp/modfreq/vibrato/vrate/perc/percf/lfofreq/
+//                 lfodepth), global FX sends (room/size/delaytime/
+//                 delayfeedback), and `# vowel a|e|i|o|u`.
+//
+// Mini-notation scope is unchanged from v1 (research R5):
+//   sequence, rest ~, event NAME(:INT), group [a b], fast/slow a*2 a/2,
+//   euclid a(3,8), stack [a b, c d].
+// Still deferred: <a b> alternation, ? randomness, ! replicate, @ elongate,
+// polymeter {..}, function combinators, and per-control patterns
+// (# cutoff "400 800").
 
-start: sequence
+line: "d1" "$" "s" "\"" sequence "\"" control*
+
+mini: sequence
 
 sequence: element+
 
@@ -44,8 +56,24 @@ group: "[" stack "]"
 
 stack: sequence ("," sequence)*
 
+control: "#" PARAM NUMBER   -> control_num
+       | "#" "vowel" VOWEL  -> control_vowel
+
+PARAM: "note" | "n" | "gain" | "pan" | "speed" | "accelerate"
+     | "attack" | "release"
+     | "cutoff" | "resonance" | "hcutoff" | "hresonance"
+     | "bandf" | "bandq" | "shape" | "crush" | "coarse"
+     | "voice" | "semitone" | "lfo" | "pitch1" | "pitch2" | "pitch3"
+     | "rate" | "decay" | "detune" | "slide" | "velocity"
+     | "muffle" | "stereo" | "modamp" | "modfreq" | "vibrato" | "vrate"
+     | "perc" | "percf" | "lfofreq" | "lfodepth"
+     | "room" | "size" | "delaytime" | "delayfeedback"
+
+VOWEL: "a" | "e" | "i" | "o" | "u"
+
 NAME: /[a-z][a-z0-9]*/
 INT: /[0-9]+/
+NUMBER: /-?[0-9]+(\.[0-9]+)?/
 
 %import common.WS
 %ignore WS
