@@ -1,0 +1,18 @@
+# LLM investigation notes (local only)
+.llm/
+WIP.md
+
+# Local artifacts — never committed (constitution III)
+corpus/
+banks/
+datasets/
+checkpoints/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Nix / direnv
+result
+.direnv/
