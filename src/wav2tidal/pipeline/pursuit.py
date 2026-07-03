@@ -46,7 +46,9 @@ RenderFn = Callable[[Scene, Path, float, float, int], Path]
 EmbedFn = Callable[[np.ndarray, int], np.ndarray | None]
 
 # Sample rate used when reading back candidate renders for scoring.
-_SCORE_SR = 44100
+# 48 kHz because ClapEmbedder.embed requires CLAP_SR audio — read_wav
+# resamples the 44.1 kHz NRT renders; targets from analyze_wav are 48 kHz too.
+_SCORE_SR = 48000
 
 
 def default_render(sources: Sources) -> RenderFn:
