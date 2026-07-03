@@ -12,6 +12,8 @@ their strength honestly rather than feigning precision.
 
 from __future__ import annotations
 
+import math
+
 import librosa
 import librosa.feature.rhythm  # noqa: F401  (register lazy-loaded submodule)
 import numpy as np
@@ -181,6 +183,143 @@ def descriptor_text(audio: np.ndarray, sr: int, hop_length: int = 512) -> str:
     return (
         f"tempo={int(round(bpm))} density={density_label} "
         f"key={key} brightness={brightness}/5 motion={motion}"
+    )
+
+
+# Absolute brightness log-scale bounds (Hz) for descriptor v2 (issue #67).
+_BRT_LOG_MIN = math.log(200.0)
+_BRT_LOG_MAX = math.log(8000.0)
+
+
+def _brt_digit(hz: float) -> int:
+    """Map a spectral centroid in Hz to a 0–9 digit on a log scale.
+
+    200 Hz → 0, 8 kHz → 9; values outside the range are clamped.
+    """
+    if hz <= 0.0:
+        return 0
+    t = (math.log(hz) - _BRT_LOG_MIN) / (_BRT_LOG_MAX - _BRT_LOG_MIN) * 9.0
+    return int(round(max(0.0, min(9.0, t))))
+
+
+def segment_pitch_classes(
+    y: np.ndarray,
+    sr: int,
+    n_segments: int = 8,
+    hop_length: int = 512,
+) -> tuple[str, ...]:
+    """Dominant pitch class per equal-length segment (issue #67, research R3).
+
+    Splits ``y`` into ``n_segments`` equal pieces; for each piece takes the
+    mean CQT chromagram frame and returns the PITCH_NAMES name of the
+    argmax.  A segment whose chroma L2-norm is below 1e-8 (silence) yields
+    ``"-"``.
+    """
+    y = np.asarray(y, dtype=np.float32)
+    n = len(y)
+    seg_len = max(n // n_segments, 1)
+    result: list[str] = []
+    for i in range(n_segments):
+        seg = y[i * seg_len : (i + 1) * seg_len]
+        if seg.size == 0:
+            seg = np.zeros(hop_length, dtype=np.float32)
+        elif seg.size < hop_length:
+            seg = np.pad(seg, (0, hop_length - seg.size))
+        ch = _chroma(seg, sr, hop_length)  # (12, T)
+        profile = ch.mean(axis=1)
+        if float(np.linalg.norm(profile)) < 1e-8:
+            result.append("-")
+        else:
+            result.append(_PITCH_CLASSES[int(np.argmax(profile))])
+    return tuple(result)
+
+
+def quantized_arc(values: np.ndarray) -> str:
+    """Map a 1-D array of non-negative per-segment values to a digit string.
+
+    Each value is scaled relative to the array maximum and rounded to 0–9.
+    An all-zero array yields all ``"0"`` digits (issue #67, research R3).
+    """
+    values = np.asarray(values, dtype=np.float64)
+    max_val = float(np.max(values))
+    if max_val < 1e-12:
+        return "0" * len(values)
+    return "".join(str(int(round(float(v) * 9.0 / max_val))) for v in values)
+
+
+def segment_arcs(
+    y: np.ndarray,
+    sr: int,
+    n_segments: int = 8,
+    hop_length: int = 512,
+) -> dict[str, str]:
+    """Per-segment energy, onset-density, and brightness arcs (issue #67).
+
+    Returns a dict with three keys:
+    - ``"dyn"``: RMS per segment, quantized relative to the segment-max.
+    - ``"ons"``: onset count per segment, quantized relative to the segment-max.
+    - ``"brt"``: mean spectral centroid per segment mapped LOG-scale from
+      200 Hz to 8 kHz → digit 0–9 (absolute, not relative).
+    """
+    y = np.asarray(y, dtype=np.float32)
+    n = len(y)
+    seg_len = max(n // n_segments, 1)
+
+    rms_vals = np.zeros(n_segments, dtype=np.float64)
+    ons_vals = np.zeros(n_segments, dtype=np.float64)
+    brt_digits: list[int] = []
+
+    for i in range(n_segments):
+        seg = y[i * seg_len : (i + 1) * seg_len]
+        if seg.size == 0:
+            seg = np.zeros(hop_length, dtype=np.float32)
+        elif seg.size < hop_length:
+            seg = np.pad(seg, (0, hop_length - seg.size))
+
+        rms_vals[i] = float(np.sqrt(np.mean(np.square(seg.astype(np.float64)))))
+
+        onsets = librosa.onset.onset_detect(
+            y=seg, sr=sr, hop_length=hop_length, units="frames"
+        )
+        ons_vals[i] = float(len(onsets))
+
+        cent = librosa.feature.spectral_centroid(y=seg, sr=sr, hop_length=hop_length)
+        hz = float(np.mean(cent[cent > 0])) if np.any(cent > 0) else 0.0
+        brt_digits.append(_brt_digit(hz))
+
+    return {
+        "dyn": quantized_arc(rms_vals),
+        "ons": quantized_arc(ons_vals),
+        "brt": "".join(str(d) for d in brt_digits),
+    }
+
+
+def descriptor_text_v2(
+    audio: np.ndarray,
+    sr: int,
+    hop_length: int = 512,
+    n_segments: int = 8,
+) -> str:
+    """Descriptor v2: pitch contour + quantized arcs (issue #67, research R3).
+
+    Format (single spaces, fields in this order)::
+
+        tempo=<int> key=<label> pit:<8 names> dyn:<8 d> ons:<8 d> brt:<8 d>
+
+    ``tempo`` and ``key`` are computed identically to ``descriptor_text`` v1.
+    ``pit`` is the argmax pitch class per equal-length segment (dominant
+    harmony skeleton; ``"-"`` for silent segments).
+    ``dyn``/``ons``/``brt`` are energy, onset-density, and brightness arcs
+    quantized to single digits 0–9.
+    """
+    bpm, _ = estimate_tempo(audio, sr, hop_length)
+    key, _ = estimate_key(audio, sr, hop_length)
+    pit = segment_pitch_classes(audio, sr, n_segments=n_segments, hop_length=hop_length)
+    arcs = segment_arcs(audio, sr, n_segments=n_segments, hop_length=hop_length)
+    pit_str = " ".join(pit)
+    return (
+        f"tempo={int(round(bpm))} key={key} "
+        f"pit:{pit_str} dyn:{arcs['dyn']} ons:{arcs['ons']} brt:{arcs['brt']}"
     )
 
 
