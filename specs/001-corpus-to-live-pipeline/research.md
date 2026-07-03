@@ -420,3 +420,22 @@ boot and run our own **unpausable monitor** (`In(dry)+In(effect) →
 Limiter → out`, no DirtPause, no gate). Note this drops CheckBadValues
 protection — acceptable for offline renders. Upstream report should
 cover the class, not just the delay instance.
+
+### R7 addendum 4 — global FX in NRT (issue #40, verified 2026-07-03)
+
+The tier-2 verdict ("global FX needs real-time capture") applied to
+SuperDirt's *orbit machinery*, which we no longer use for scenes: the
+scene renderer owns its graph, and its per-scene `dirt_reverb2` /
+`dirt_delay2` / monitor are ordinary synthdefs. Verified: they load and
+run in an NRT score (core-synths-global.scd compiles under the array
+`~dirt` fake; SwitchDelay is on the NRT plugin path), the `RandSeed`
+synth makes even the reverb's `Rand` taps deterministic, and a
+two-voice scene with room/size + delaytime/delayfeedback trajectories
+renders **byte-identically across runs at ~0.6 s wall for 6 s of
+audio** (~10× faster than real time per process, embarrassingly
+parallel). A/B against an RT render of the same plan: spectral-centroid
+halves within 7.5%, RMS within 2% — the FR-013 scene tolerance.
+
+Consequence: `scene_route` sends scenes to RT **only for sample layers**
+(buffers; NRT `b_allocRead` is the future path). RT capture remains the
+live-agent path and the validation reference.

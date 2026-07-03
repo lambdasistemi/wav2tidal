@@ -37,14 +37,15 @@ def test_route_nrt_for_bare_scene():
     assert scene_route(s, SOURCES) == NRT
 
 
-def test_route_rt_for_globals_or_layer():
-    assert scene_route(_scene([_voice(controls={"room": 0.4})]), SOURCES) == RT
+def test_route_only_layer_forces_rt():
+    # global FX render in NRT since issue #40 (the scene graph owns them)
+    assert scene_route(_scene([_voice(controls={"room": 0.4})]), SOURCES) == NRT
     assert (
         scene_route(
             _scene([_voice(mods=(Trajectory("delaytime", "ramp", (0.1, 0.5)),))]),
             SOURCES,
         )
-        == RT
+        == NRT
     )
     assert scene_route(_scene([_voice()], layer=Pattern("bd", {})), SOURCES) == RT
 
@@ -186,3 +187,36 @@ def test_rt_scene_batch_script_structure():
     assert '"/dirt/play"' in s  # the layer
     assert "~n_v0.free;" in s and "~g_reverb.free;" in s
     assert "WAV2TIDAL_JOB_0_DONE" in s
+
+
+def test_nrt_scene_script_includes_global_fx_graph():
+    plan = _plan(
+        _scene(
+            [
+                _voice(
+                    controls={"room": 0.5},
+                    mods=(Trajectory("size", "ramp", (0.2, 0.9)),),
+                )
+            ]
+        )
+    )
+    s = build_nrt_scene_script(
+        plan, "/tmp/out.wav", "/tmp/score.osc", ["/q/lib.scd", "/q/core.scd"]
+    )
+    assert "SynthDescLib.global[\\dirt_reverb2]" in s
+    assert "\\s_new, \\dirt_reverb2" in s and "\\room, 0.5" in s
+    assert "SynthDef(\\w2t_monitor" in s and "\\s_new, \\w2t_monitor" in s
+    # route feeds the dry bus, size trajectory automates the reverb node
+    assert "\\out, 8]]" in s
+    assert "\\size," in s
+
+
+def test_nrt_scene_script_without_globals_has_no_fx_graph():
+    plan = _plan(
+        _scene([_voice(mods=(Trajectory("cutoff", "ramp", (200.0, 2000.0)),))])
+    )
+    s = build_nrt_scene_script(
+        plan, "/tmp/out.wav", "/tmp/score.osc", ["/q/lib.scd", "/q/core.scd"]
+    )
+    assert "dirt_reverb" not in s and "dirt_delay" not in s
+    assert "\\s_new, \\w2t_monitor" in s  # monitor always sums dry+effect
