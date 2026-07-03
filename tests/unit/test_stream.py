@@ -344,6 +344,82 @@ def test_analysis_window_chroma_default_is_empty():
 
 
 # ---------------------------------------------------------------------------
+# windows() carries chroma_seq and modspec fields (issue #69)
+# ---------------------------------------------------------------------------
+
+
+def test_windows_chroma_seq_shape():
+    """Every window from windows() has chroma_seq of shape (12, 32)."""
+    y = white_noise(8.0)
+    wins = windows(y, SR, window_s=4.0, hop_s=4.0)
+    assert len(wins) >= 1
+    for w in wins:
+        assert w.chroma_seq.shape == (
+            12,
+            32,
+        ), f"Expected (12, 32), got {w.chroma_seq.shape}"
+        assert w.chroma_seq.dtype == np.float64
+
+
+def test_windows_modspec_shape():
+    """Every window from windows() has modspec of shape (192,) == 8*24."""
+    y = white_noise(8.0)
+    wins = windows(y, SR, window_s=4.0, hop_s=4.0)
+    assert len(wins) >= 1
+    for w in wins:
+        assert w.modspec.shape == (8 * 24,), f"Expected (192,), got {w.modspec.shape}"
+        assert w.modspec.dtype == np.float64
+
+
+def test_windows_chroma_seq_columns_normalized_on_noise():
+    """Non-zero columns of chroma_seq have unit L2 norm."""
+    y = white_noise(4.0, amp=0.5, seed=77)
+    wins = windows(y, SR, window_s=4.0, hop_s=4.0)
+    assert len(wins) >= 1
+    seq = wins[0].chroma_seq
+    for j in range(seq.shape[1]):
+        col_norm = float(np.linalg.norm(seq[:, j]))
+        if col_norm > 1e-8:
+            assert col_norm == pytest.approx(1.0, abs=1e-6)
+
+
+def test_windows_modspec_unit_norm_on_noise():
+    """modspec is unit-norm on non-silence noise windows."""
+    y = white_noise(4.0, amp=0.5, seed=88)
+    wins = windows(y, SR, window_s=4.0, hop_s=4.0)
+    assert len(wins) >= 1
+    norm = float(np.linalg.norm(wins[0].modspec))
+    # norm may be 0 (all energy above Nyquist of SR=8000) or 1.0
+    assert norm == pytest.approx(0.0, abs=1e-6) or norm == pytest.approx(1.0, abs=1e-6)
+
+
+def test_analysis_window_chroma_seq_default_is_empty():
+    """AnalysisWindow constructed without chroma_seq gets an empty default."""
+    w = AnalysisWindow(
+        t0=0.0,
+        t1=4.0,
+        descriptor="tempo=120 density=lo key=C brightness=3/5 motion=steady",
+        tempo=120.0,
+        energy=0.1,
+        embedding=np.empty(0, dtype=np.float64),
+    )
+    assert w.chroma_seq.size == 0
+
+
+def test_analysis_window_modspec_default_is_empty():
+    """AnalysisWindow constructed without modspec gets an empty default."""
+    w = AnalysisWindow(
+        t0=0.0,
+        t1=4.0,
+        descriptor="tempo=120 density=lo key=C brightness=3/5 motion=steady",
+        tempo=120.0,
+        energy=0.1,
+        embedding=np.empty(0, dtype=np.float64),
+    )
+    assert w.modspec.size == 0
+
+
+# ---------------------------------------------------------------------------
 # descriptor_version plumbing (issue #67)
 # ---------------------------------------------------------------------------
 

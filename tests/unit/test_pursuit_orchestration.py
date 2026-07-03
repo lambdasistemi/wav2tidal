@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from wav2tidal.core.dsp.features import mean_chroma
+from wav2tidal.core.dsp.features import chroma_sequence, mean_chroma
 from wav2tidal.core.dsp.stream import AnalysisWindow
 from wav2tidal.core.pattern.model import Scene
 from wav2tidal.core.pattern.validate import Sources
@@ -487,4 +487,111 @@ def test_harmonic_scoring_window_without_chroma_degrades_to_timbre(tmp_path):
     )
     assert len(records) == 1
     # Should not crash and should produce a winner
+    assert records[0].winner_index >= 0
+
+
+# ---------------------------------------------------------------------------
+# chroma_seq movement A→E: correct direction beats reversed (issue #69)
+# ---------------------------------------------------------------------------
+
+_SR_SEQ = 22050  # sufficient for CQT at both 440 Hz and 330 Hz
+
+
+def _two_tone_wav(
+    freq1: float, freq2: float, half_dur_s: float = 1.0, sr: int = _SR_SEQ
+) -> np.ndarray:
+    """Concatenate two equal-length sines: freq1 then freq2."""
+    n = int(sr * half_dur_s)
+    t = np.arange(n) / sr
+    y1 = (0.3 * np.sin(2 * np.pi * freq1 * t)).astype(np.float32)
+    y2 = (0.3 * np.sin(2 * np.pi * freq2 * t)).astype(np.float32)
+    return np.concatenate([y1, y2])
+
+
+def test_chroma_seq_movement_correct_direction_wins(tmp_path):
+    """A candidate whose harmony moves A→E beats one moving E→A.
+
+    The target window has chroma_seq built from an A-then-E signal.  Candidate
+    0 renders A→E (matching direction); candidate 1 renders E→A (reversed).
+    With w_harmony_seq=1.0 and all other weights=0, candidate 0 must win.
+    (issue #69)
+    """
+    # A4 = 440 Hz (pitch class 9), E4 = 329.63 Hz (pitch class 4).
+    target_audio = _two_tone_wav(440.0, 329.63)
+    target_seq = chroma_sequence(target_audio, _SR_SEQ)
+
+    # Equal (dummy) embeddings so timbre/harmony/modspec components don't decide.
+    fixed_emb = np.array([1.0, 0.0, 0.0], dtype=np.float64)
+
+    def fixed_embed(y: np.ndarray, sr: int) -> np.ndarray:
+        return fixed_emb
+
+    def seq_render(
+        scene: Scene, out_wav: Path, duration_s: float, cps: float, seed: int
+    ) -> Path:
+        # cand0 → A→E (matching target); cand1 → E→A (reversed)
+        if "cand0" in out_wav.name:
+            y = _two_tone_wav(440.0, 329.63)
+        else:
+            y = _two_tone_wav(329.63, 440.0)
+        write_wav(out_wav, y, _SR_SEQ)
+        return out_wav
+
+    win = AnalysisWindow(
+        t0=0.0,
+        t1=4.0,
+        descriptor="tempo=120 density=lo key=A brightness=3/5 motion=steady",
+        tempo=120.0,
+        energy=0.1,
+        embedding=fixed_emb,
+        chroma_seq=target_seq,
+    )
+
+    records = run_pursuit(
+        [win],
+        SOURCES,
+        tmp_path / "out",
+        render=seq_render,
+        embed=fixed_embed,
+        cfg=PursuitConfig(
+            k_candidates=2,
+            w_timbre=0.0,
+            w_harmony=0.0,
+            w_harmony_seq=1.0,
+            w_modspec=0.0,
+        ),
+    )
+
+    assert len(records) == 1
+    assert (
+        records[0].winner_index == 0
+    ), f"A→E candidate (0) should win; scores={records[0].scores}"
+
+
+def test_chroma_seq_missing_fields_degrade_gracefully(tmp_path):
+    """Windows without chroma_seq/modspec fields (empty defaults) do not crash.
+
+    Scoring falls back to the available components (timbre + harmony or none).
+    The loop must still complete and pick a winner.  (issue #69)
+    """
+    # _window() produces AnalysisWindow with default-empty chroma_seq and modspec.
+    ws = _windows(1)
+    assert ws[0].chroma_seq.size == 0
+    assert ws[0].modspec.size == 0
+
+    records = run_pursuit(
+        ws,
+        SOURCES,
+        tmp_path / "out",
+        render=fake_render,
+        embed=fake_embed,
+        cfg=PursuitConfig(
+            k_candidates=3,
+            w_timbre=0.3,
+            w_harmony=0.2,
+            w_harmony_seq=0.25,
+            w_modspec=0.25,
+        ),
+    )
+    assert len(records) == 1
     assert records[0].winner_index >= 0
