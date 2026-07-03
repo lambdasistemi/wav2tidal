@@ -504,7 +504,9 @@ def nrt_render(
 # loudness fix) so descriptors are level-comparable across configs.
 
 _NRT_BASE_NODE = 2000
-_NRT_BASE_BUS = 16  # after the 2 hardware output channels; NRT has 1024
+_NRT_BASE_BUS = 16  # voice buses; the dry/effect mix buses sit below
+_NRT_DRY_BUS = 8
+_NRT_EFFECT_BUS = 10
 _NORM_PEAK = 0.891  # -1 dBFS
 
 
@@ -547,6 +549,17 @@ def build_nrt_scene_script(
     loads = "\n".join(f'"{f}".load;' for f in synthdef_files)
     nodes, ids = _flatten_plan(plan)
     defs = sorted({_def_name(n) for _, _, n in nodes})
+    g = dict(plan.globals_static)
+    needs_reverb = any(k in g for k in ("room", "size")) or any(
+        ref == "g_reverb" for _, ref, _, _ in plan.automation
+    )
+    needs_delay = any(k in g for k in ("delaytime", "delayfeedback")) or any(
+        ref == "g_delay" for _, ref, _, _ in plan.automation
+    )
+    if needs_reverb:
+        defs = sorted({*defs, "dirt_reverb2"})
+    if needs_delay:
+        defs = sorted({*defs, "dirt_delay2"})
     rows = [
         "[0.0, [\\d_recv, "
         "SynthDef(\\w2t_seed, { |seed| RandSeed.ir(1, seed); "
@@ -554,6 +567,10 @@ def build_nrt_scene_script(
         "[0.0, [\\d_recv, "
         "SynthDef(\\w2t_route, { |bus, out = 0| "
         "Out.ar(out, In.ar(bus, 2)) }).asBytes]]",
+        "[0.0, [\\d_recv, "
+        "SynthDef(\\w2t_monitor, { |dryBus, effectBus, outBus = 0| "
+        "Out.ar(outBus, Limiter.ar(In.ar(dryBus, 2) + In.ar(effectBus, 2))) "
+        "}).asBytes]]",
     ]
     rows += [f"[0.0, [\\d_recv, SynthDescLib.global[\\{d}].def.asBytes]]" for d in defs]
     rows.append(f"[0.0, [\\s_new, \\w2t_seed, 999, 0, 0, \\seed, {int(seed)}]]")
@@ -567,11 +584,29 @@ def build_nrt_scene_script(
         bus = _NRT_BASE_BUS + 2 * i
         rows.append(
             f"[0.0, [\\s_new, \\w2t_route, {ids[f'v{i}_route']}, 1, 0,"
-            f" \\bus, {bus}, \\out, 0]]"
+            f" \\bus, {bus}, \\out, {_NRT_DRY_BUS}]]"
         )
+    if needs_reverb:
+        args = " ".join(f"\\{k}, {_fmt(g[k])}," for k in ("room", "size") if k in g)
+        rows.append(
+            f"[0.0, [\\s_new, \\dirt_reverb2, {ids['g_reverb']}, 1, 0,"
+            f" \\dryBus, {_NRT_DRY_BUS}, \\effectBus, {_NRT_EFFECT_BUS}, {args}]]"
+        )
+    if needs_delay:
+        args = " ".join(
+            f"\\{k}, {_fmt(g[k])}," for k in ("delaytime", "delayfeedback") if k in g
+        )
+        rows.append(
+            f"[0.0, [\\s_new, \\dirt_delay2, {ids['g_delay']}, 1, 0,"
+            f" \\dryBus, {_NRT_DRY_BUS}, \\effectBus, {_NRT_EFFECT_BUS},"
+            f" \\delaySend, 1, \\delayAmp, 1, {args}]]"
+        )
+    monitor_id = ids["g_delay"] + 1
+    rows.append(
+        f"[0.0, [\\s_new, \\w2t_monitor, {monitor_id}, 1, 0,"
+        f" \\dryBus, {_NRT_DRY_BUS}, \\effectBus, {_NRT_EFFECT_BUS}, \\outBus, 0]]"
+    )
     for t, ref, arg, value in plan.automation:
-        if ref in ("g_reverb", "g_delay"):
-            continue  # global FX are RT-only; scene_route sent us here NRT-clean
         rows.append(
             f"[{_fmt(float(t))}, [\\n_set, {ids[ref]}, \\{arg}, {_fmt(value)}]]"
         )
@@ -602,6 +637,7 @@ def _scene_synthdef_files() -> list[str]:
     files = [
         Path(quark) / "library" / "default-synths-extra.scd",
         Path(quark) / "synths" / "core-synths.scd",  # dirt_* effect defs
+        Path(quark) / "synths" / "core-synths-global.scd",  # reverb/delay
     ]
     for f in files:
         if not f.exists():

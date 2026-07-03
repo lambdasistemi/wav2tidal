@@ -193,18 +193,16 @@ class ScenePlan:
 
 
 def scene_route(scene: Scene, sources: Sources) -> str:
-    """NRT (deterministic) unless the scene needs the live engine: a
-    sample layer or any global-FX send (static or trajectory) -> RT.
-    Raises ValueError for scenes we cannot render faithfully yet."""
+    """NRT (deterministic, faster than real time) unless the scene needs
+    the live engine: only a sample *layer* forces RT (buffers + SuperDirt
+    event machinery). Global FX render in NRT since issue #40 — the scene
+    graph owns its reverb/delay/monitor nodes, so they are ordinary
+    seeded synths in the score. Raises ValueError for scenes we cannot
+    render faithfully yet."""
     for voice in scene.voices:
         if "vowel" in voice.controls:
             raise ValueError("vowel on a scene voice is not renderable yet")
-    has_global = any(
-        (k in _GLOBAL_REFS)
-        for v in scene.voices
-        for k in (*v.controls, *(m.param for m in v.mods))
-    )
-    return RT if scene.layer is not None or has_global else NRT
+    return RT if scene.layer is not None else NRT
 
 
 def _voice_params(voice, synth: str | None) -> dict[str, float]:
