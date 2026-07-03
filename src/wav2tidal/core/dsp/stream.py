@@ -12,7 +12,14 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from .features import descriptor_text, descriptor_text_v2, estimate_tempo, mean_chroma
+from .features import (
+    chroma_sequence,
+    descriptor_text,
+    descriptor_text_v2,
+    estimate_tempo,
+    mean_chroma,
+    modulation_spectrum,
+)
 
 
 @dataclass(frozen=True)
@@ -38,6 +45,21 @@ class AnalysisWindow:
     # via mean_chroma(); defaults to an empty array so existing direct
     # constructions remain valid without passing this field.
     chroma: np.ndarray = field(
+        repr=False,
+        compare=False,
+        hash=False,
+        default_factory=lambda: np.empty(0, dtype=np.float64),
+    )
+    # Change-aware scoring fields (issue #69).  Filled by windows() via
+    # chroma_sequence() and modulation_spectrum(); default to empty arrays so
+    # direct AnalysisWindow constructions remain valid without these fields.
+    chroma_seq: np.ndarray = field(
+        repr=False,
+        compare=False,
+        hash=False,
+        default_factory=lambda: np.empty(0, dtype=np.float64),
+    )
+    modspec: np.ndarray = field(
         repr=False,
         compare=False,
         hash=False,
@@ -100,6 +122,8 @@ def windows(
         )
 
         chroma = mean_chroma(win, sr, hop_length)
+        chroma_seq = chroma_sequence(win, sr, hop_length)
+        modspec = modulation_spectrum(win, sr)
 
         result.append(
             AnalysisWindow(
@@ -110,6 +134,8 @@ def windows(
                 energy=energy,
                 embedding=emb,
                 chroma=chroma,
+                chroma_seq=chroma_seq,
+                modspec=modspec,
             )
         )
         start += hop_samples

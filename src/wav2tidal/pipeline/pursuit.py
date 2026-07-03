@@ -18,7 +18,7 @@ from pathlib import Path
 
 import numpy as np
 
-from ..core.dsp.features import mean_chroma
+from ..core.dsp.features import chroma_sequence, mean_chroma, modulation_spectrum
 from ..core.pattern.dirt import scene_plan
 from ..core.pattern.model import Scene
 from ..core.pattern.validate import Sources
@@ -31,6 +31,7 @@ from ..core.pursuit import (
     decide,
     make_candidates,
     select,
+    seq_similarity,
     tempo_to_cps,
     vec_similarity,
 )
@@ -162,11 +163,20 @@ def run_pursuit(
                         else _empty
                     )
                     cand_chroma = mean_chroma(loaded.y, loaded.sr)
+                    cand_seq = chroma_sequence(loaded.y, loaded.sr)
+                    cand_modspec = modulation_spectrum(loaded.y, loaded.sr)
                     target_chroma = getattr(window, "chroma", _empty)
+                    target_seq = getattr(window, "chroma_seq", _empty)
+                    target_modspec = getattr(window, "modspec", _empty)
                     scores_list[j] = combined_score(
                         [
                             (vec_similarity(cand_emb, window.embedding), cfg.w_timbre),
                             (vec_similarity(cand_chroma, target_chroma), cfg.w_harmony),
+                            (seq_similarity(cand_seq, target_seq), cfg.w_harmony_seq),
+                            (
+                                vec_similarity(cand_modspec, target_modspec),
+                                cfg.w_modspec,
+                            ),
                         ]
                     )
                 except Exception as exc:
