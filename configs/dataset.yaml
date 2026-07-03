@@ -33,3 +33,9 @@ rt_batch_size: 16
 scene_ratio: 0.7
 # Trajectory tick for scene renders (seconds).
 automation_tick: 0.05
+
+# Parallel rendering (issue #34). NRT renders run in a thread pool of
+# independent sclang processes; RT batches spread across a fleet of
+# SuperDirt instances (distinct scsynth/OSC ports + null sinks).
+max_workers: 4
+fleet_size: 1

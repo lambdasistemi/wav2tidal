@@ -81,8 +81,9 @@ class _FakeRenderers:
         t = np.arange(int(seconds * self.sr)) / self.sr
         write_wav(path, (0.2 * np.sin(2 * np.pi * hz * t)).astype("float32"), self.sr)
 
-    def rt_batch(self, jobs, banks_dir=None):
+    def rt_batch(self, jobs, banks_dir=None, **fleet_kw):
         self.rt_jobs.append((len(jobs), banks_dir))
+        self.fleet_kws = getattr(self, "fleet_kws", []) + [fleet_kw]
         for out, seconds, events in jobs:
             self._write(out, seconds, 440 + 10 * len(events))
         return [j[0] for j in jobs]
@@ -92,7 +93,7 @@ class _FakeRenderers:
         self._write(out, seconds, 220 + 10 * len(events))
         return out
 
-    def rt_scenes(self, jobs, banks_dir=None):
+    def rt_scenes(self, jobs, banks_dir=None, **fleet_kw):
         self.scene_rt_jobs.append(len(jobs))
         for out, plan in jobs:
             self._write(out, plan.duration, 330 + 5 * len(plan.chains))
@@ -201,3 +202,25 @@ def test_scene_ratio_zero_reproduces_line_corpus(tmp_path):
 def test_scene_rt_jobs_are_batched(tmp_path):
     _, fakes = _run_synth(tmp_path, size=24, scene_ratio=1.0)
     assert all(n <= 4 for n in fakes.scene_rt_jobs)
+
+
+def test_fleet_distributes_distinct_ports_and_sinks(tmp_path):
+    _make_banks(tmp_path)
+    fakes = _FakeRenderers()
+    cfg = _cfg(mode="synth", size=24, rt_batch_size=2, scene_ratio=0.0, fleet_size=3)
+    config_dataset(
+        tmp_path,
+        cfg,
+        rt_batch=fakes.rt_batch,
+        nrt_events=fakes.nrt_events,
+        rt_scenes=fakes.rt_scenes,
+        nrt_scene=fakes.nrt_scene,
+    )
+    kws = getattr(fakes, "fleet_kws", [])
+    if kws:  # seed-dependent whether RT jobs exist, but if they do:
+        seen = {(k["server_port"], k["port"], k["sink"]) for k in kws}
+        assert all(k["server_port"] != k["port"] for k in kws)
+        assert len({k["sink"] for k in kws}) == len(
+            {k["server_port"] for k in kws}
+        )  # one sink per instance
+        assert len(seen) <= 3

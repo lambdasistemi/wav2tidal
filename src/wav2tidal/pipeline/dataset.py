@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import random
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -240,6 +241,7 @@ def config_dataset(
         return scene_plan(scene, sources, total_seconds, cfg.cps, cfg.automation_tick)
 
     audio: dict[int, np.ndarray] = {}
+    nrt_tasks: list = []  # thunks: NRT renders are independent processes
     rt_jobs: list[tuple[int, Path]] = []
     rt_scene_jobs: list[tuple[int, Path]] = []
     for i, (kind, obj, mode) in enumerate(items):
@@ -247,7 +249,7 @@ def config_dataset(
         if kind == "scene":
             if mode == NRT:
                 fn = nrt_scene or _default_nrt_scene()
-                fn(_plan(obj), wav_path)
+                nrt_tasks.append((fn, (_plan(obj), wav_path)))
             else:
                 rt_scene_jobs.append((i, wav_path))
         elif mode == MIX:
@@ -256,19 +258,59 @@ def config_dataset(
             write_wav(wav_path, audio[i], cfg.target_sr)
         elif mode == NRT:
             fn = nrt_events or _default_nrt_events()
-            fn(
-                render_events(obj, sources, cfg.cps, cfg.n_cycles, NRT),
-                total_seconds,
-                wav_path,
+            nrt_tasks.append(
+                (
+                    fn,
+                    (
+                        render_events(obj, sources, cfg.cps, cfg.n_cycles, NRT),
+                        total_seconds,
+                        wav_path,
+                    ),
+                )
             )
         else:
             rt_jobs.append((i, wav_path))
 
+    with ThreadPoolExecutor(max_workers=max(1, cfg.max_workers)) as pool:
+        for fut in [pool.submit(fn, *args) for fn, args in nrt_tasks]:
+            fut.result()  # re-raise render failures
+
+    # RT: round-robin the batches across the fleet; each instance owns a
+    # distinct scsynth port, SuperDirt OSC port, and null sink, and works
+    # through its share of batches sequentially.
     banks_dir = ws.banks if inv else None
+
+    def _chunks(job_list):
+        return [
+            job_list[s : s + cfg.rt_batch_size]
+            for s in range(0, len(job_list), cfg.rt_batch_size)
+        ]
+
+    def _fleet_kw(k: int) -> dict:
+        return {
+            "server_port": 57140 + k,
+            "port": 57220 + k,
+            "sink": f"w2t_rt_{k}",
+        }
+
+    def _run_fleet(fn, chunk_payloads):
+        fleet = max(1, cfg.fleet_size)
+        per_instance: list[list] = [[] for _ in range(fleet)]
+        for n, payload in enumerate(chunk_payloads):
+            per_instance[n % fleet].append(payload)
+
+        def worker(k: int):
+            for payload in per_instance[k]:
+                fn(payload, banks_dir=banks_dir, **_fleet_kw(k))
+
+        with ThreadPoolExecutor(max_workers=fleet) as pool:
+            for fut in [pool.submit(worker, k) for k in range(fleet)]:
+                fut.result()
+
     fn = rt_batch or _default_rt_batch()
-    for chunk_start in range(0, len(rt_jobs), cfg.rt_batch_size):
-        chunk = rt_jobs[chunk_start : chunk_start + cfg.rt_batch_size]
-        fn(
+    _run_fleet(
+        fn,
+        [
             [
                 (
                     path,
@@ -276,16 +318,18 @@ def config_dataset(
                     render_events(items[i][1], sources, cfg.cps, cfg.n_cycles, RT),
                 )
                 for i, path in chunk
-            ],
-            banks_dir=banks_dir,
-        )
+            ]
+            for chunk in _chunks(rt_jobs)
+        ],
+    )
     fn = rt_scenes or _default_rt_scenes()
-    for chunk_start in range(0, len(rt_scene_jobs), cfg.rt_batch_size):
-        chunk = rt_scene_jobs[chunk_start : chunk_start + cfg.rt_batch_size]
-        fn(
-            [(path, _plan(items[i][1])) for i, path in chunk],
-            banks_dir=banks_dir,
-        )
+    _run_fleet(
+        fn,
+        [
+            [(path, _plan(items[i][1])) for i, path in chunk]
+            for chunk in _chunks(rt_scene_jobs)
+        ],
+    )
 
     n = 0
     with open(out_dir / "pairs.jsonl", "w") as fh:
