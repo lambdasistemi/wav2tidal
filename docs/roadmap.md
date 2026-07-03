@@ -4,6 +4,20 @@ Ordered roughly by expected leverage. Items with issue links are
 committed work; the rest are candidates we consider worth trying, each
 with the reasoning and the risk stated.
 
+## Recently landed
+
+- **Global FX in NRT**
+  ([#40](https://github.com/lambdasistemi/wav2tidal/issues/40)) — the
+  scene graph owns its reverb/delay/monitor, so they render as ordinary
+  seeded synthdefs in the NRT score: 6 s of audio in ~0.6 s wall,
+  byte-deterministic, within 7.5% centroid / 2% RMS of an RT render (the
+  FR-013 scene tolerance). Only sample layers still require real-time
+  capture; the RT fleet remains the live path and validation reference.
+- **Render-phase overlap**
+  ([PR #39](https://github.com/lambdasistemi/wav2tidal/pull/39)) — the
+  CPU-bound NRT pool now runs concurrently with the wall-clock-bound RT
+  fleets.
+
 ## In flight
 
 - **Big-corpus retrain** — regenerate the training corpus at 10× (4,000
