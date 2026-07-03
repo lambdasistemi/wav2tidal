@@ -1,5 +1,15 @@
 # Roadmap — improvements we will try
 
+## The north star
+
+Play the machine a piece you know — *Take Five* — and get back a
+synthetic reinterpretation you would still **recognize**: its harmony,
+its melody, its pulse, re-clothed in this instrument's sounds. Today the
+system matches sound *character*; recognizability of the *tune* needs
+melodic/harmonic tracking over time (in tasting notes **and** in
+scoring), which is a future chapter, planned after the live loop first
+plays. Every design choice below is ultimately judged against that test.
+
 Ordered roughly by expected leverage. Items with issue links are
 committed work; the rest are candidates we consider worth trying, each
 with the reasoning and the risk stated.
