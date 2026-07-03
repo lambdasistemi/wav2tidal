@@ -1,0 +1,560 @@
+
+<!DOCTYPE html>
+
+<html class="no-js" lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width,initial-scale=1" name="viewport"/>
+<meta content="Learn musical style from WAV corpora and drive TidalCycles live" name="description"/>
+<link href=".." rel="prev"/>
+<link href="../sound-engine/" rel="next"/>
+<link href="../assets/images/favicon.png" rel="icon"/>
+<meta content="mkdocs-1.6.1, mkdocs-material-9.7.0" name="generator"/>
+<title>Architecture - wav2tidal</title>
+<link href="../assets/stylesheets/main.618322db.min.css" rel="stylesheet"/>
+<link href="../assets/stylesheets/palette.ab4e12ef.min.css" rel="stylesheet"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&amp;display=fallback" rel="stylesheet"/>
+<style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+<script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+</head>
+<body data-md-color-accent="indigo" data-md-color-primary="indigo" data-md-color-scheme="slate" dir="ltr">
+<input autocomplete="off" class="md-toggle" data-md-toggle="drawer" id="__drawer" type="checkbox"/>
+<input autocomplete="off" class="md-toggle" data-md-toggle="search" id="__search" type="checkbox"/>
+<label class="md-overlay" for="__drawer"></label>
+<div data-md-component="skip">
+<a class="md-skip" href="#architecture">
+          Skip to content
+        </a>
+</div>
+<div data-md-component="announce">
+</div>
+<header class="md-header md-header--shadow" data-md-component="header">
+<nav aria-label="Header" class="md-header__inner md-grid">
+<a aria-label="wav2tidal" class="md-header__button md-logo" data-md-component="logo" href=".." title="wav2tidal">
+<svg viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"></path></svg>
+</a>
+<label class="md-header__button md-icon" for="__drawer">
+<svg viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"></path></svg>
+</label>
+<div class="md-header__title" data-md-component="header-title">
+<div class="md-header__ellipsis">
+<div class="md-header__topic">
+<span class="md-ellipsis">
+            wav2tidal
+          </span>
+</div>
+<div class="md-header__topic" data-md-component="header-topic">
+<span class="md-ellipsis">
+            
+              Architecture
+            
+          </span>
+</div>
+</div>
+</div>
+<label class="md-header__button md-icon" for="__search">
+<svg viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"></path></svg>
+</label>
+<div class="md-search" data-md-component="search" role="dialog">
+<label class="md-search__overlay" for="__search"></label>
+<div class="md-search__inner" role="search">
+<form class="md-search__form" name="search">
+<input aria-label="Search" autocapitalize="off" autocomplete="off" autocorrect="off" class="md-search__input" data-md-component="search-query" name="query" placeholder="Search" required="" spellcheck="false" type="text"/>
+<label class="md-search__icon md-icon" for="__search">
+<svg viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"></path></svg>
+<svg viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"></path></svg>
+</label>
+<nav aria-label="Search" class="md-search__options">
+<button aria-label="Clear" class="md-search__icon md-icon" tabindex="-1" title="Clear" type="reset">
+<svg viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"></path></svg>
+</button>
+</nav>
+</form>
+<div class="md-search__output">
+<div class="md-search__scrollwrap" data-md-scrollfix="" tabindex="0">
+<div class="md-search-result" data-md-component="search-result">
+<div class="md-search-result__meta">
+            Initializing search
+          </div>
+<ol class="md-search-result__list" role="presentation"></ol>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="md-header__source">
+<a class="md-source" data-md-component="source" href="https://github.com/lambdasistemi/wav2tidal" title="Go to repository">
+<div class="md-source__icon md-icon">
+<svg viewbox="0 0 448 512" xmlns="http://www.w3.org/2000/svg"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"></path></svg>
+</div>
+<div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+</div>
+</nav>
+</header>
+<div class="md-container" data-md-component="container">
+<main class="md-main" data-md-component="main">
+<div class="md-main__inner md-grid">
+<div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation">
+<div class="md-sidebar__scrollwrap">
+<div class="md-sidebar__inner">
+<nav aria-label="Navigation" class="md-nav md-nav--primary" data-md-level="0">
+<label class="md-nav__title" for="__drawer">
+<a aria-label="wav2tidal" class="md-nav__button md-logo" data-md-component="logo" href=".." title="wav2tidal">
+<svg viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"></path></svg>
+</a>
+    wav2tidal
+  </label>
+<div class="md-nav__source">
+<a class="md-source" data-md-component="source" href="https://github.com/lambdasistemi/wav2tidal" title="Go to repository">
+<div class="md-source__icon md-icon">
+<svg viewbox="0 0 448 512" xmlns="http://www.w3.org/2000/svg"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"></path></svg>
+</div>
+<div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+</div>
+<ul class="md-nav__list" data-md-scrollfix="">
+<li class="md-nav__item">
+<a class="md-nav__link" href="..">
+<span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+</a>
+</li>
+<li class="md-nav__item md-nav__item--active">
+<input class="md-nav__toggle md-toggle" id="__toc" type="checkbox"/>
+<label class="md-nav__link md-nav__link--active" for="__toc">
+<span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+<span class="md-nav__icon md-icon"></span>
+</label>
+<a class="md-nav__link md-nav__link--active" href="./">
+<span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+</a>
+<nav aria-label="Table of contents" class="md-nav md-nav--secondary">
+<label class="md-nav__title" for="__toc">
+<span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+<ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#the-one-engine-principle">
+<span class="md-ellipsis">
+      
+        The one-engine principle
+      
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#the-config-language-grammar-v3">
+<span class="md-ellipsis">
+      
+        The config language (grammar v3)
+      
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#module-map-pure-core-impure-shell">
+<span class="md-ellipsis">
+      
+        Module map (pure core / impure shell)
+      
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#rendering-route-by-fidelity">
+<span class="md-ellipsis">
+      
+        Rendering: route by fidelity
+      
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#the-dataset-and-the-model">
+<span class="md-ellipsis">
+      
+        The dataset and the model
+      
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#what-matching-two-sounds-means">
+<span class="md-ellipsis">
+      
+        What "matching two sounds" means
+      
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#design-history">
+<span class="md-ellipsis">
+      
+        Design history
+      
+    </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../sound-engine/">
+<span class="md-ellipsis">
+    
+  
+    Sound engine
+  
+
+    
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../language/">
+<span class="md-ellipsis">
+    
+  
+    Language
+  
+
+    
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../model/">
+<span class="md-ellipsis">
+    
+  
+    Model
+  
+
+    
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../roadmap/">
+<span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+</a>
+</li>
+</ul>
+</nav>
+</div>
+</div>
+</div>
+<div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc">
+<div class="md-sidebar__scrollwrap">
+<div class="md-sidebar__inner">
+<nav aria-label="Table of contents" class="md-nav md-nav--secondary">
+<label class="md-nav__title" for="__toc">
+<span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+<ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#the-one-engine-principle">
+<span class="md-ellipsis">
+      
+        The one-engine principle
+      
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#the-config-language-grammar-v3">
+<span class="md-ellipsis">
+      
+        The config language (grammar v3)
+      
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#module-map-pure-core-impure-shell">
+<span class="md-ellipsis">
+      
+        Module map (pure core / impure shell)
+      
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#rendering-route-by-fidelity">
+<span class="md-ellipsis">
+      
+        Rendering: route by fidelity
+      
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#the-dataset-and-the-model">
+<span class="md-ellipsis">
+      
+        The dataset and the model
+      
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#what-matching-two-sounds-means">
+<span class="md-ellipsis">
+      
+        What "matching two sounds" means
+      
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#design-history">
+<span class="md-ellipsis">
+      
+        Design history
+      
+    </span>
+</a>
+</li>
+</ul>
+</nav>
+</div>
+</div>
+</div>
+<div class="md-content" data-md-component="content">
+<article class="md-content__inner md-typeset">
+<h1 id="architecture">Architecture</h1>
+<p>The system is one loop, built in stages. A <em>config</em> — a sentence of the
+project's grammar — flows rightward into audio; a <em>descriptor</em> — a
+compact text describing audio — flows leftward into the model. The live
+agent (US3, next) closes the circle.</p>
+<pre class="mermaid"><code>flowchart LR
+    subgraph corpus [Corpus]
+        WAV[WAV files] --&gt; ING[ingest<br/>beat-slice + describe]
+        ING --&gt; BANKS[SuperDirt banks]
+        ING --&gt; PROF[style profile]
+    end
+
+    subgraph language [Config language]
+        GEN[seeded generator] --&gt; CFG[config text<br/>scene or event line]
+        CFG --&gt; VAL[validator]
+    end
+
+    subgraph engine [Sound engine]
+        VAL --&gt; ROUTE{route}
+        ROUTE --&gt;|samples, plain| MIX[numpy mixdown]
+        ROUTE --&gt;|synth, bare-def| NRT[SuperCollider NRT<br/>deterministic]
+        ROUTE --&gt;|global FX / layer| RT[booted SuperDirt<br/>real-time capture]
+        BANKS --&gt; RT
+    end
+
+    MIX --&gt; AUD[audio]
+    NRT --&gt; AUD
+    RT --&gt; AUD
+    AUD --&gt; DESC[descriptor text<br/>tempo/density/key/brightness/motion]
+    DESC --&gt; PAIRS[(descriptor to config pairs)]
+    CFG --&gt; PAIRS
+    PAIRS --&gt; BYT5[ByT5 fine-tune<br/>gfx1151 bf16]
+    BYT5 --&gt;|proposes| CFG
+</code></pre>
+<h2 id="the-one-engine-principle">The one-engine principle</h2>
+<p>The renderer used to make training data is the <em>same SuperDirt</em> the live
+agent will play through. A model trained on offline renders of a
+different engine would learn a different instrument. That decision
+(design-change-001) forces real-time capture into the dataset path — and
+everything else follows from making that fast, deterministic where
+possible, and honest where not.</p>
+<h2 id="the-config-language-grammar-v3">The config language (grammar v3)</h2>
+<p>One versioned lark grammar
+(<a href="https://github.com/lambdasistemi/wav2tidal/blob/main/grammar/pattern_subset.lark"><code>grammar/pattern_subset.lark</code></a>)
+is the single syntactic source of truth shared by the generator, the
+validator, and (eventually) the grammar-constrained decoder. It has
+three entry points:</p>
+<ul>
+<li><code>mini</code> — Tidal mini-notation (<code>bd:3 ~ [sn sn] hh*2</code>), interpreted by
+  one scheduler shared by every renderer.</li>
+<li><code>line</code> — a full event line: sources + <code># param value</code> controls.</li>
+<li><code>scene</code> — the primary composition unit since design-change-002:</li>
+</ul>
+<div class="highlight"><pre><span></span><code>scene voice supersaw # note -12 # lfo 0.5
+      mod cutoff sine 800 600 0.25 mod resonance ramp 0.2 0.6
+      voice superhammond:3 # vibrato 0.5 mod room walk 0.4 0.3 0.5 7
+      layer d1 $ s "bd(3,8)" # gain 0.9
+</code></pre></div>
+<p>A scene is 1–4 sustained voices; each <code>mod</code> moves one parameter along a
+shape (<code>ramp</code>, <code>sine</code>, <code>walk</code>, <code>steps</code>) over time. Semantics — parameter
+ranges, per-synth applicability, what is modulatable — live in one table
+(<a href="https://github.com/lambdasistemi/wav2tidal/blob/main/src/wav2tidal/core/pattern/params.py"><code>core/pattern/params.py</code></a>),
+derived from the SuperDirt sources and documented with provenance in
+<a href="https://github.com/lambdasistemi/wav2tidal/blob/main/specs/001-corpus-to-live-pipeline/contracts/params-v2.md"><code>contracts/params-v2.md</code></a>.
+See <strong><a href="../language/">Language</a></strong>.</p>
+<h2 id="module-map-pure-core-impure-shell">Module map (pure core / impure shell)</h2>
+<div class="highlight"><pre><span></span><code>src/wav2tidal/
+├── core/                 PURE — no IO, fully CI-tested
+│   ├── pattern/          grammar, params table, shapes, trajectory
+│   │                     sampler, scene/line types, generator+mutation,
+│   │                     validator, renderer mapping (dirt.py), repair
+│   ├── render/           mini-notation scheduler + numpy slice mixdown
+│   ├── dsp/              slicing, features (tempo/key/onsets/motion)
+│   └── descriptor/       style-profile types
+├── io/                   THE SHELL — file/audio/process edges
+│   ├── superdirt.py      sclang script builders + NRT/RT renderers
+│   ├── banks.py wav.py   SuperDirt bank layout, WAV IO
+│   └── embedder.py       CLAP (opt-in) / handcrafted-only default
+├── pipeline/             ingest, style profile, dataset generation
+└── train/                data split, validity metrics, ByT5 loop
+</code></pre></div>
+<p>The split is load-bearing: every musical decision (what is valid, what a
+shape means, what a config renders as) is pure and property-tested on
+CPU; the shell only executes plans. CI runs the pure surface; two local
+smoke gates (<code>just smoke-audio</code>, <code>just smoke-gpu</code>) guard the hardware
+edges.</p>
+<h2 id="rendering-route-by-fidelity">Rendering: route by fidelity</h2>
+<p>A config may only go to a renderer that realizes <strong>every</strong> control it
+sets — a mismatch would produce training pairs whose description doesn't
+match their text (silent mislabeling, the worst dataset bug). The router
+(<a href="https://github.com/lambdasistemi/wav2tidal/blob/main/src/wav2tidal/core/pattern/dirt.py"><code>core/pattern/dirt.py</code></a>)
+picks the cheapest faithful path:</p>
+<table>
+<thead>
+<tr>
+<th>path</th>
+<th>what</th>
+<th>properties</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>mix</code></td>
+<td>sample lines with gain/speed/pan only</td>
+<td>pure numpy, byte-deterministic, CI-safe</td>
+</tr>
+<tr>
+<td><code>nrt</code></td>
+<td>synth voices + bare-def params + FX chains</td>
+<td>headless <code>Score.recordNRT</code>, byte-deterministic (seeded RNG)</td>
+</tr>
+<tr>
+<td><code>rt</code></td>
+<td>global FX (reverb/delay), sample layers</td>
+<td>booted SuperDirt, full chain, tolerance-reproducible</td>
+</tr>
+</tbody>
+</table>
+<p>Scenes build their own synth graphs (voices on private buses, per-voice
+<code>dirt_*</code> FX chained in SuperDirt's module order, known node handles), so
+trajectories can be automated: <code>n_set</code> score rows in NRT — fully
+deterministic — and scheduled ticks in RT. Renders are peak-normalized
+to −1 dBFS. See <strong><a href="../sound-engine/">Sound engine</a></strong> for the details and
+the SuperDirt bugs found along the way.</p>
+<h2 id="the-dataset-and-the-model">The dataset and the model</h2>
+<p><code>config_dataset</code> samples seeded valid-by-construction configs (a
+configurable scene/line mix), renders each through its routed path — NRT
+in a thread pool, RT across a <strong>fleet</strong> of SuperDirt instances — then
+describes the captured audio:</p>
+<div class="highlight"><pre><span></span><code>tempo=122 density=mid key=C#m brightness=4/5 motion=rising
+</code></pre></div>
+<p><code>motion</code> matters: it is the field that makes a filter <em>sweep</em>
+describable, so the model can learn when to emit a <code>ramp</code> instead of a
+constant. Pairs are written with their renderer and kind; the artifact
+embeds the source inventory and an explicit reproducibility contract
+(config text: byte-deterministic from the seed; mix/NRT audio:
+byte-deterministic; RT audio: within tolerance).</p>
+<p>ByT5-small (byte-level — never mangles <code>~ [ ] # :</code>) is fully fine-tuned
+in bf16 on the gfx1151 GPU to map descriptor → config text. Generated
+configs are validated by the same grammar+validator as everything else,
+and near-valid outputs pass through
+<a href="https://github.com/lambdasistemi/wav2tidal/blob/main/src/wav2tidal/core/pattern/repair.py"><code>repair</code></a>
+(truncate voices, dedupe mods, clamp ranges) — the live loop's
+send-safety layer. See <strong><a href="../model/">Model</a></strong>.</p>
+<h2 id="what-matching-two-sounds-means">What "matching two sounds" means</h2>
+<p>Two mechanisms, deliberately different:</p>
+<ul>
+<li><strong>Sound ↔ sound</strong> (scoring): every clip becomes a vector — a CLAP
+  embedding (timbre/texture semantics) concatenated with handcrafted
+  features (MFCC/chroma/tempo, the things CLAP encodes weakly). Match =
+  cosine similarity. Ear-verified in US1: similar tracks rank above
+  dissimilar ones.</li>
+<li><strong>Sound ↔ config</strong> (the model): no direct comparison — both sides are
+  projected into the shared descriptor language, and the model learns
+  description → config. Live, the two compose: the model's config is the
+  opening move; capture-and-cosine scoring judges it; evolution refines.</li>
+</ul>
+<h2 id="design-history">Design history</h2>
+<p>The repo practices design-first development: substantial direction
+changes are recorded as ADRs before implementation, and research claims
+are verified against primary sources (the SuperDirt quark code, nixpkgs,
+the hardware) with per-claim status in
+<a href="https://github.com/lambdasistemi/wav2tidal/blob/main/specs/001-corpus-to-live-pipeline/research.md"><code>research.md</code></a>.
+Two pivots shaped the system:</p>
+<ol>
+<li><strong>Sound-first</strong> (design-change-001): timbre over rhythm; control real
+   SuperDirt synths, full FX vocabulary, live capture authoritative.</li>
+<li><strong>Parameter scenes</strong> (design-change-002): compose in parameter space —
+   Tidal scores the <em>parameters</em>, not the score.</li>
+</ol>
+</article>
+</div>
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+</div>
+</main>
+<footer class="md-footer">
+<div class="md-footer-meta md-typeset">
+<div class="md-footer-meta__inner md-grid">
+<div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" rel="noopener" target="_blank">
+      Material for MkDocs
+    </a>
+</div>
+</div>
+</div>
+</footer>
+</div>
+<div class="md-dialog" data-md-component="dialog">
+<div class="md-dialog__inner md-typeset"></div>
+</div>
+<script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "content.code.copy"], "search": "../assets/javascripts/workers/search.7a47a382.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+<script src="../assets/javascripts/bundle.e71a0d61.min.js"></script>
+<script type="module">import mermaid from "https://unpkg.com/mermaid@10.4.0/dist/mermaid.esm.min.mjs";
+window.mermaidConfig = {default: {
+    startOnLoad: false
+}};</script></body>
+</html>
