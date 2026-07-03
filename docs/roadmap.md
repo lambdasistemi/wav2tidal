@@ -11,6 +11,18 @@ crazy orchestra, a crazy monster that is playing"), perpetually *trying
 to catch up* with what it hears — continuous pursuit, never a one-shot
 answer.
 
+**The operating setup — the DJ-set model.** The intended stage: a
+skilled DJ mixes records as the machine's input, so the input always
+carries great tempo, feeling, drops, drama — the machine does not
+compose structure, it *inherits* it and follows. The audience hears
+**only the machine's output, delayed** — never both signals at once.
+That makes the delay a *feature*: the live loop gets a seconds-scale
+latency budget (listen → propose → render → compare, no tight sync
+problem), and its job reduces to tracking and translating the input's
+arc. What must never be lost in that translation: tempo continuity and
+the **energy arc** — a drop in the booth must become a drop in the
+machine.
+
 Today the system matches sound *character*; recognizability of the
 *tune* needs melodic/harmonic tracking over time (in tasting notes
 **and** in scoring), which is a future chapter, planned after the live
