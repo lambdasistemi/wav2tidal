@@ -400,3 +400,23 @@ must be seeded or accepted; pin the SuperDirt quark derivation for repro.
   (RT ≈ clip length + 0.8 s gap, boot amortized per batch; NRT scene ≈
   3–4 s incl. normalization). Measured: 10 hybrid items (6 RT + 4 NRT,
   6 s clips) in 51 s.
+
+### R7 addendum 3 — the pause/resume bug class (issue #34, verified 2026-07-03)
+
+The delay bug (addendum 1) generalizes: **any SuperDirt global-effect node
+that pauses never produces audio again after resume on this box**
+(scsynth 3.13.0 / PipeWire-JACK). Second confirmed case: `dirt_monitor`
+carries `DirtPause(graceTime: 4)` — after ~4 s of cumulative orbit
+silence (e.g. a percussive scene's quiet tail) it pauses itself, and both
+`fx.resume` (boot-time and per-job) and the event path leave it silent;
+every subsequent render in the batch records zeros. Bisect record: jobs
+sound solo and in pairs, die only after a >4 s silent stretch, revive
+only for jobs following a full free/spawn cycle of unrelated synths —
+i.e. deterministic, position-like, and diagnosable only with per-second
+envelopes (peak normalization masks partial captures).
+
+Workaround (both RT batch scripts): free the orbit's `dirt_monitor` at
+boot and run our own **unpausable monitor** (`In(dry)+In(effect) →
+Limiter → out`, no DirtPause, no gate). Note this drops CheckBadValues
+protection — acceptable for offline renders. Upstream report should
+cover the class, not just the delay instance.

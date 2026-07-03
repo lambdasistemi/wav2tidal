@@ -48,6 +48,7 @@ def build_rt_script(
     seconds: float,
     out_wav: str,
     port: int = 57120,
+    server_port: int = 57110,
 ) -> str:
     """Pure: sclang source that boots SuperDirt, plays one /dirt/play event
     through an orbit (so the full FX chain — filters, reverb, delay — applies),
@@ -59,6 +60,8 @@ def build_rt_script(
         f'.sendMsg("/dirt/play", {_dirt_args(synth, params)}, \\orbit, 0);'
     )
     return f"""(
+s = Server(\\w2t, NetAddr("127.0.0.1", {server_port}), s.options);
+Server.default = s;             // fleet: dedicated scsynth per instance
 s.options.numWireBufs = 512;    // superfm needs many interconnects
 s.options.memSize = 131072;     // GVerb defs (superprimes/...) need RT memory
 s.waitForBoot {{
@@ -102,8 +105,8 @@ def rt_render(
     out_wav.parent.mkdir(parents=True, exist_ok=True)
 
     env = dict(os.environ)
-    routed = _make_null_sink(sink) if sink else False
-    if routed:
+    sink_id = _make_null_sink(sink) if sink else None
+    if sink_id:
         env["SC_JACK_DEFAULT_OUTPUTS"] = f"{sink}:playback_FL,{sink}:playback_FR"
     try:
         with tempfile.TemporaryDirectory() as td:
@@ -111,8 +114,8 @@ def rt_render(
             script.write_text(build_rt_script(synth, params, seconds, str(out_wav)))
             proc = _run_sclang([sclang, str(script)], timeout, env)
     finally:
-        if routed:
-            _unload_null_sink()
+        if sink_id:
+            _unload_null_sink(sink_id)
 
     if "WAV2TIDAL_RT_OK" not in proc.stdout or not out_wav.exists():
         raise RuntimeError(
@@ -121,22 +124,24 @@ def rt_render(
     return out_wav
 
 
-def _make_null_sink(name: str) -> bool:
+def _make_null_sink(name: str) -> str | None:
+    """Load a per-render null sink; returns the pactl module id (fleet-safe:
+    unloading by module TYPE would tear down every other instance's sink)."""
     if not shutil.which("pactl"):
-        return False
+        return None
     r = subprocess.run(
         ["pactl", "load-module", "module-null-sink", f"sink_name={name}"],
         capture_output=True,
         text=True,
     )
-    return r.returncode == 0
+    if r.returncode != 0:
+        return None
+    return r.stdout.strip() or None
 
 
-def _unload_null_sink() -> None:
+def _unload_null_sink(module_id: str) -> None:
     if shutil.which("pactl"):
-        subprocess.run(
-            ["pactl", "unload-module", "module-null-sink"], capture_output=True
-        )
+        subprocess.run(["pactl", "unload-module", module_id], capture_output=True)
 
 
 # A renderable event: (time seconds, sound name, /dirt/play or s_new params).
@@ -155,6 +160,7 @@ def build_rt_batch_script(
     jobs: list[tuple[str, float, list[RenderEvent]]],
     port: int = 57120,
     banks_dir: str | None = None,
+    server_port: int = 57110,
 ) -> str:
     """Pure: sclang source that boots SuperDirt ONCE and renders many jobs.
 
@@ -171,7 +177,10 @@ def build_rt_batch_script(
     blocks = []
     for i, (out_wav, seconds, events) in enumerate(jobs):
         delay = {k: p[k] for _, _, p in events for k in _JOB_DELAY if k in p}
-        lines = [f's.record("{out_wav}", numChannels: 2);', "s.sync;"]
+        lines = [
+            f's.record("{out_wav}", numChannels: 2);',
+            "s.sync;",
+        ]
         if delay:
             dargs = ", ".join(f"\\{k}, {_fmt(v)}" for k, v in sorted(delay.items()))
             lines.append(
@@ -201,6 +210,8 @@ def build_rt_batch_script(
         blocks.append("\n        ".join(lines))
     body = "\n        ".join(blocks)
     return f"""(
+s = Server(\\w2t, NetAddr("127.0.0.1", {server_port}), s.options);
+Server.default = s;             // fleet: dedicated scsynth per instance
 s.options.numWireBufs = 512;    // superfm needs many interconnects
 s.options.memSize = 131072;     // GVerb defs (superprimes/...) need RT memory
 s.waitForBoot {{
@@ -210,6 +221,16 @@ s.waitForBoot {{
     ~dirt.start({port}, [0]);
     s.sync;
     ~orbit = ~dirt.orbits[0];
+    ~orbit.globalEffects.do {{ |fx|
+        if(fx.name == \\dirt_monitor) {{ fx.synth.free }};
+    }};
+    SynthDef(\\w2t_monitor, {{ |dryBus, effectBus, outBus = 0|
+        Out.ar(outBus, Limiter.ar(In.ar(dryBus, 2) + In.ar(effectBus, 2)))
+    }}).add;
+    s.sync;
+    ~w2t_monitor = Synth.tail(s.defaultGroup, \\w2t_monitor,
+        [\\dryBus, ~orbit.dryBus.index, \\effectBus, ~orbit.globalEffectBus.index]);
+    s.sync;
     "WAV2TIDAL_RT_READY".postln;
     Routine({{
         var addr = NetAddr("127.0.0.1", {port});
@@ -228,6 +249,8 @@ def rt_render_batch(
     banks_dir: str | Path | None = None,
     sclang: str | None = None,
     sink: str | None = "w2t_rt",
+    port: int = 57120,
+    server_port: int = 57110,
     timeout: float | None = None,
 ) -> list[Path]:
     """Render many event-sequences through ONE booted SuperDirt (real time).
@@ -244,21 +267,24 @@ def rt_render_batch(
         timeout = 90.0 + 1.5 * (sum(s for _, s, _ in jobs) + 2.5 * len(jobs))
 
     env = dict(os.environ)
-    routed = _make_null_sink(sink) if sink else False
-    if routed:
+    sink_id = _make_null_sink(sink) if sink else None
+    if sink_id:
         env["SC_JACK_DEFAULT_OUTPUTS"] = f"{sink}:playback_FL,{sink}:playback_FR"
     try:
         with tempfile.TemporaryDirectory() as td:
             script = Path(td) / "rt_batch.scd"
             script.write_text(
                 build_rt_batch_script(
-                    norm, banks_dir=str(banks_dir) if banks_dir else None
+                    norm,
+                    port=port,
+                    banks_dir=str(banks_dir) if banks_dir else None,
+                    server_port=server_port,
                 )
             )
             proc = _run_sclang([sclang, str(script)], timeout, env)
     finally:
-        if routed:
-            _unload_null_sink()
+        if sink_id:
+            _unload_null_sink(sink_id)
 
     missing = [str(o) for o in outs if not o.exists()]
     if "WAV2TIDAL_RT_OK" not in proc.stdout or missing:
@@ -634,6 +660,7 @@ def build_rt_scene_batch_script(
     jobs: list[tuple[str, object]],
     port: int = 57120,
     banks_dir: str | None = None,
+    server_port: int = 57110,
 ) -> str:
     """Pure: sclang source rendering scene plans through one booted SuperDirt.
 
@@ -647,10 +674,15 @@ def build_rt_scene_batch_script(
     load_samples = f'~dirt.loadSoundFiles("{banks_dir}/*");\n    ' if banks_dir else ""
     blocks = []
     for j, (out_wav, plan) in enumerate(jobs):
+        # dirt_monitor/dirt_rms pause themselves after 4 s of orbit silence
+        # (DirtPause); vanilla SuperDirt resumes them on every /dirt/play, so
+        # a quiet scene tail would otherwise silence all later jobs
         lines = []
         n_voices = len(plan.chains)
         for i in range(n_voices):
             lines.append(f"~b{i} = Bus.audio(s, 2);")
+        lines.append(f's.record("{out_wav}", numChannels: 2);')
+        lines.append("s.sync;")  # recorder MUST run before any voice fires
         g = dict(plan.globals_static)
         needs_reverb = any(k in g for k in ("room", "size")) or any(
             ref == "g_reverb" for _, ref, _, _ in plan.automation
@@ -689,8 +721,6 @@ def build_rt_scene_batch_script(
                 f"~n_v{i}_route = Synth.tail(~orbit.group, \\w2t_route,"
                 f" [\\bus, ~b{i}.index, \\out, ~orbit.dryBus.index]);"
             )
-        lines.append(f's.record("{out_wav}", numChannels: 2);')
-        lines.append("s.sync;")
 
         timeline: list[tuple[float, str]] = []
         for t, ref, arg, value in plan.automation:
@@ -725,6 +755,8 @@ def build_rt_scene_batch_script(
         blocks.append("\n        ".join(lines))
     body = "\n        ".join(blocks)
     return f"""(
+s = Server(\\w2t, NetAddr("127.0.0.1", {server_port}), s.options);
+Server.default = s;             // fleet: dedicated scsynth per instance
 s.options.numWireBufs = 512;    // superfm needs many interconnects
 s.options.memSize = 131072;     // GVerb defs (superprimes/...) need RT memory
 s.waitForBoot {{
@@ -734,10 +766,19 @@ s.waitForBoot {{
     ~dirt.start({port}, [0]);
     s.sync;
     ~orbit = ~dirt.orbits[0];
-    // monitor/rms are created paused and resumed only by /dirt/play
-    // events; a pure-drone job has none — resume the always-run FX
-    ~orbit.globalEffects.do {{ |fx| if(fx.alwaysRun) {{ fx.resume }} }};
+    // dirt_monitor pauses itself after 4 s of orbit silence (DirtPause)
+    // and — like the orbit delay, R7 addendum — never sounds again after a
+    // resume on this box. Replace it with an unpausable monitor.
+    ~orbit.globalEffects.do {{ |fx|
+        if(fx.name == \\dirt_monitor) {{ fx.synth.free }};
+    }};
+    SynthDef(\\w2t_monitor, {{ |dryBus, effectBus, outBus = 0|
+        Out.ar(outBus, Limiter.ar(In.ar(dryBus, 2) + In.ar(effectBus, 2)))
+    }}).add;
     SynthDef(\\w2t_route, {{ |bus, out = 0| Out.ar(out, In.ar(bus, 2)) }}).add;
+    s.sync;
+    ~w2t_monitor = Synth.tail(s.defaultGroup, \\w2t_monitor,
+        [\\dryBus, ~orbit.dryBus.index, \\effectBus, ~orbit.globalEffectBus.index]);
     s.sync;
     "WAV2TIDAL_RT_READY".postln;
     Routine({{
@@ -757,6 +798,8 @@ def rt_render_scene_batch(
     banks_dir: str | Path | None = None,
     sclang: str | None = None,
     sink: str | None = "w2t_rt",
+    port: int = 57120,
+    server_port: int = 57110,
     normalize: float | None = _NORM_PEAK,
     timeout: float | None = None,
 ) -> list[Path]:
@@ -771,21 +814,24 @@ def rt_render_scene_batch(
         timeout = 90.0 + 1.5 * (total + 2.5 * len(jobs))
 
     env = dict(os.environ)
-    routed = _make_null_sink(sink) if sink else False
-    if routed:
+    sink_id = _make_null_sink(sink) if sink else None
+    if sink_id:
         env["SC_JACK_DEFAULT_OUTPUTS"] = f"{sink}:playback_FL,{sink}:playback_FR"
     try:
         with tempfile.TemporaryDirectory() as td:
             script = Path(td) / "rt_scenes.scd"
             script.write_text(
                 build_rt_scene_batch_script(
-                    norm, banks_dir=str(banks_dir) if banks_dir else None
+                    norm,
+                    port=port,
+                    banks_dir=str(banks_dir) if banks_dir else None,
+                    server_port=server_port,
                 )
             )
             proc = _run_sclang([sclang, str(script)], timeout, env)
     finally:
-        if routed:
-            _unload_null_sink()
+        if sink_id:
+            _unload_null_sink(sink_id)
 
     missing = [str(o) for o in outs if not o.exists()]
     if "WAV2TIDAL_RT_OK" not in proc.stdout or missing:
