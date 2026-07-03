@@ -691,6 +691,131 @@ def test_make_candidates_key_na_does_not_snap():
 
 
 # ---------------------------------------------------------------------------
+# make_candidates() — ensemble rules integration (issue #64)
+# ---------------------------------------------------------------------------
+
+# F#m7 chord pitch classes: {F#=6, A=9, C#=1, E=4}
+_FSM7_PCS = frozenset({1, 4, 6, 9})
+# Metric rate divisions for cps=0.5 (120 BPM / 4 beats):
+# 0.5 × {0.25, 0.5, 1, 2, 4} = {0.125, 0.25, 0.5, 1.0, 2.0}
+_METRIC_RATES_HALF_CPS = frozenset({0.125, 0.25, 0.5, 1.0, 2.0})
+
+
+def _window_ensemble(
+    key: str = "F#m",
+    tempo: float = 120.0,
+    energy: float = 0.15,
+) -> AnalysisWindow:
+    return AnalysisWindow(
+        t0=0.0,
+        t1=4.0,
+        descriptor=(
+            f"tempo={int(tempo)} density=lo key={key} brightness=3/5 motion=steady"
+        ),
+        tempo=tempo,
+        energy=energy,
+        embedding=np.empty(0, dtype=np.float64),
+    )
+
+
+def test_make_candidates_static_notes_are_chord_tones_f_sharp_minor():
+    """All static note controls are F#m7 chord tones after ensemble_rules."""
+    rng = random.Random(42)
+    state = PursuitState.initial()
+    w = _window_ensemble()
+    cfg = PursuitConfig(k_candidates=8)
+    pool = make_candidates(rng, "propose", state, w, SOURCES, None, cfg)
+    assert len(pool) >= 1
+    for scene in pool:
+        for v in scene.voices:
+            note = v.controls.get("note")
+            if note is not None and isinstance(note, (int, float)):
+                pc = int(round(float(note))) % 12
+                assert (
+                    pc in _FSM7_PCS
+                ), f"Static note {note} (pc={pc}) not in F#m7 {_FSM7_PCS}"
+
+
+def test_make_candidates_static_note_pairwise_gap_f_sharp_minor():
+    """Consecutive static notes (sorted) are >= 3 semitones apart."""
+    rng = random.Random(42)
+    state = PursuitState.initial()
+    w = _window_ensemble()
+    cfg = PursuitConfig(k_candidates=8)
+    pool = make_candidates(rng, "propose", state, w, SOURCES, None, cfg)
+    assert len(pool) >= 1
+    for scene in pool:
+        static_notes = sorted(
+            float(v.controls["note"])
+            for v in scene.voices
+            if "note" in v.controls and isinstance(v.controls["note"], (int, float))
+        )
+        for i in range(len(static_notes) - 1):
+            gap = static_notes[i + 1] - static_notes[i]
+            assert gap >= 3, (
+                f"Gap {gap} < 3 between notes {static_notes[i]} and "
+                f"{static_notes[i + 1]} in {static_notes}"
+            )
+
+
+def test_make_candidates_sine_walk_rates_are_metric_f_sharp_minor():
+    """All sine/walk trajectory rates are metric divisions of cps=0.5."""
+    rng = random.Random(42)
+    state = PursuitState.initial()
+    w = _window_ensemble()
+    cfg = PursuitConfig(k_candidates=8)
+    pool = make_candidates(rng, "propose", state, w, SOURCES, None, cfg)
+    assert len(pool) >= 1
+    for scene in pool:
+        for v in scene.voices:
+            for traj in v.mods:
+                if traj.shape in ("sine", "walk") and len(traj.args) >= 3:
+                    rate = traj.args[2]
+                    assert (
+                        rate in _METRIC_RATES_HALF_CPS
+                    ), f"Rate {rate} not in metric divisions {_METRIC_RATES_HALF_CPS}"
+
+
+def test_make_candidates_gains_reflect_register_staging():
+    """Bass voices have higher gains than treble voices (register staging)."""
+    # Inject a scene with a known bass (note=-24) and treble (note=12) voice.
+    # After the pipeline, the bass gain factor (1.05) must yield a higher or
+    # equal final gain than the treble factor (0.8) × the same energy gain.
+    _BASS_TREBLE = "scene voice supersaw # note -24 voice supersaw # note 12"
+
+    def _propose(descriptor: str) -> str:
+        return _BASS_TREBLE
+
+    rng = random.Random(0)
+    state = PursuitState.initial()
+    w = _window_ensemble(energy=0.15)  # energy=0.15 → apply_energy factor=1.0
+    cfg = PursuitConfig(k_candidates=4)
+    pool = make_candidates(rng, "propose", state, w, SOURCES, _propose, cfg)
+    assert len(pool) >= 1
+    first = pool[0]
+
+    # Find the two voices by their final note position (after chord snap).
+    # note=-24 (C, pc=0) → chord snaps to C# at -23 (pc=1 ∈ F#m7): register ≤ -12.
+    # note=12 (C, pc=0) → chord snaps to 13 (C#, pc=1 ∈ F#m7): register ≥ 12.
+    gains_by_register: dict[str, float] = {}
+    for v in first.voices:
+        note = v.controls.get("note")
+        gain = v.controls.get("gain")
+        if note is not None and gain is not None:
+            note_f = float(note)
+            if note_f <= -12:
+                gains_by_register["bass"] = float(gain)
+            elif note_f >= 12:
+                gains_by_register["treble"] = float(gain)
+
+    if "bass" in gains_by_register and "treble" in gains_by_register:
+        assert gains_by_register["bass"] >= gains_by_register["treble"], (
+            f"Bass gain {gains_by_register['bass']} < treble "
+            f"gain {gains_by_register['treble']}"
+        )
+
+
+# ---------------------------------------------------------------------------
 # combined_score() (issue #59)
 # ---------------------------------------------------------------------------
 
