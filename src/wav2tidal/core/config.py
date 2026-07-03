@@ -85,6 +85,11 @@ class DatasetConfig:
     # event-line dataset.
     scene_ratio: float = 0.7
     automation_tick: float = 0.05  # trajectory tick for scene renders (s)
+    # Parallel rendering (issue #34): NRT renders are independent sclang
+    # processes (thread pool); RT batches spread across a fleet of
+    # SuperDirt instances on distinct server/OSC ports and null sinks.
+    max_workers: int = 4
+    fleet_size: int = 1
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> DatasetConfig:
