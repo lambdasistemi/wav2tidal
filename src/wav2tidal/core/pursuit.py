@@ -12,7 +12,7 @@ References:
 from __future__ import annotations
 
 import random
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Literal
 
@@ -59,8 +59,10 @@ class PursuitConfig:
     scene_duration_s: float = 4.0
     beats_per_cycle: float = 4.0
     min_voices: int = 2
-    w_timbre: float = 0.5
-    w_harmony: float = 0.5
+    w_timbre: float = 0.3
+    w_harmony: float = 0.2
+    w_harmony_seq: float = 0.25
+    w_modspec: float = 0.25
 
 
 @dataclass(frozen=True)
@@ -130,51 +132,94 @@ def score(candidate_emb: np.ndarray, target_emb: np.ndarray) -> float:
     return float(np.dot(c, t) / (cn * tn))
 
 
-def combined_score(
-    cand_emb: np.ndarray,
-    target_emb: np.ndarray,
-    cand_chroma: np.ndarray,
-    target_chroma: np.ndarray,
-    w_timbre: float,
-    w_harmony: float,
-) -> float:
-    """Combined timbre + harmony audition score (issue #59).
+def vec_similarity(a: np.ndarray, b: np.ndarray) -> float | None:
+    """Cosine similarity between two flat vectors; ``None`` when unavailable.
 
-    Cosine similarity is computed for each component via ``score()``.  A
-    component is UNAVAILABLE when either side is empty or has zero norm
-    (``score()`` already returns 0.0 for those cases; here we exclude the
-    component from weight renormalisation so it does not drag the result down).
-
-    Fallback table:
-      - both available        → weighted average (renormed to sum-of-weights)
-      - only timbre available → pure timbre cosine
-      - only harmony available → pure chroma cosine
-      - neither available     → 0.0
-
-    This keeps NullEmbedder runs meaningful (chroma-only scoring when CLAP
-    returns nothing) and existing CLAP-only tests working without change.
+    Returns ``None`` when either array is empty or has zero L2-norm (rather
+    than the 0.0 sentinel that ``score()`` returns), so callers can
+    distinguish "not computable" from "orthogonal" when building component
+    lists for ``combined_score``.
     """
+    if a.size == 0 or b.size == 0:
+        return None
+    na = float(np.linalg.norm(a))
+    nb = float(np.linalg.norm(b))
+    if na < 1e-12 or nb < 1e-12:
+        return None
+    return float(np.dot(a.astype(np.float64), b.astype(np.float64)) / (na * nb))
 
-    def _available(a: np.ndarray, b: np.ndarray) -> bool:
-        if a.size == 0 or b.size == 0:
-            return False
-        return float(np.linalg.norm(a)) > 1e-12 and float(np.linalg.norm(b)) > 1e-12
 
-    timbre_ok = _available(cand_emb, target_emb)
-    harmony_ok = _available(cand_chroma, target_chroma)
+def seq_similarity(a: np.ndarray, b: np.ndarray) -> float | None:
+    """Frame-wise cosine similarity for two ``(12, N)`` chroma sequences.
 
-    if not timbre_ok and not harmony_ok:
+    Averages the per-column cosine over all frame pairs; zero-norm column
+    pairs (silence in either signal) are skipped.  Returns ``None`` when
+    either array is not a ``(12, N)`` matrix with N > 0, or when all
+    columns are zero-norm (no valid frames to compare).
+
+    Used by the shadow-audition scorer to measure whether a candidate's
+    harmony *moves* like the target window (issue #69).
+    """
+    if a.ndim != 2 or b.ndim != 2:
+        return None
+    if a.shape[0] != 12 or b.shape[0] != 12:
+        return None
+    if a.shape[1] == 0 or b.shape[1] == 0:
+        return None
+    if a.shape[1] != b.shape[1]:
+        return None
+
+    sims: list[float] = []
+    for j in range(a.shape[1]):
+        na = float(np.linalg.norm(a[:, j]))
+        nb = float(np.linalg.norm(b[:, j]))
+        if na < 1e-8 or nb < 1e-8:
+            continue
+        sims.append(float(np.dot(a[:, j], b[:, j]) / (na * nb)))
+
+    if not sims:
+        return None
+    return float(np.mean(sims))
+
+
+def combined_score(
+    components: Sequence[tuple[float | None, float]],
+) -> float:
+    """Generalised weighted-average audition score (issue #69).
+
+    Each element of ``components`` is a ``(similarity, weight)`` pair where
+    ``similarity`` is a float in [-1, 1] or ``None`` when the component is
+    unavailable (e.g. empty embedding or zero-norm vector).
+
+    Available components (similarity is not ``None``) contribute their
+    weighted similarity to the final score; weights are renormalised over
+    the available subset.  Components with ``weight == 0.0`` are included in
+    the denominator and contribute 0 to the numerator (they do not alter the
+    result).  When no component is available, returns 0.0.
+
+    Example::
+
+        combined_score([
+            (vec_similarity(cand_emb, target_emb), cfg.w_timbre),
+            (vec_similarity(cand_chroma, target_chroma), cfg.w_harmony),
+            (seq_similarity(cand_seq, target_seq), cfg.w_harmony_seq),
+            (vec_similarity(cand_modspec, target_modspec), cfg.w_modspec),
+        ])
+    """
+    total_w = 0.0
+    numerator = 0.0
+    any_available = False
+
+    for sim, w in components:
+        if sim is None:
+            continue
+        any_available = True
+        total_w += w
+        numerator += w * sim
+
+    if not any_available or total_w < 1e-12:
         return 0.0
-
-    ew_t = w_timbre if timbre_ok else 0.0
-    ew_h = w_harmony if harmony_ok else 0.0
-    total_w = ew_t + ew_h
-    if total_w < 1e-12:
-        return 0.0
-
-    s_t = score(cand_emb, target_emb) if timbre_ok else 0.0
-    s_h = score(cand_chroma, target_chroma) if harmony_ok else 0.0
-    return (ew_t * s_t + ew_h * s_h) / total_w
+    return numerator / total_w
 
 
 def select(scores: list[float]) -> int:

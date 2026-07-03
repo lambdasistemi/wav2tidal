@@ -32,6 +32,7 @@ from ..core.pursuit import (
     make_candidates,
     select,
     tempo_to_cps,
+    vec_similarity,
 )
 from ..io.superdirt import nrt_render_scene
 from ..io.wav import read_wav
@@ -163,12 +164,10 @@ def run_pursuit(
                     cand_chroma = mean_chroma(loaded.y, loaded.sr)
                     target_chroma = getattr(window, "chroma", _empty)
                     scores_list[j] = combined_score(
-                        cand_emb,
-                        window.embedding,
-                        cand_chroma,
-                        target_chroma,
-                        cfg.w_timbre,
-                        cfg.w_harmony,
+                        [
+                            (vec_similarity(cand_emb, window.embedding), cfg.w_timbre),
+                            (vec_similarity(cand_chroma, target_chroma), cfg.w_harmony),
+                        ]
                     )
                 except Exception as exc:
                     log.warning("Score failed gen=%d cand=%d: %s", gen_i, j, exc)
