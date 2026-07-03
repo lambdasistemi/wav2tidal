@@ -25,7 +25,9 @@ from wav2tidal.core.pursuit import (
     nrt_safe,
     score,
     select,
+    seq_similarity,
     tempo_to_cps,
+    vec_similarity,
 )
 
 # ---------------------------------------------------------------------------
@@ -833,82 +835,199 @@ def test_make_candidates_gains_reflect_register_staging():
 
 
 # ---------------------------------------------------------------------------
-# combined_score() (issue #59)
+# vec_similarity() (issue #69)
 # ---------------------------------------------------------------------------
 
-_EMB_A = np.array([1.0, 0.0, 0.0])
-_EMB_B = np.array([0.0, 1.0, 0.0])
+_VEC_A = np.array([1.0, 0.0, 0.0])
+_VEC_B = np.array([0.0, 1.0, 0.0])
+_EMPTY = np.empty(0, dtype=np.float64)
+_ZERO3 = np.zeros(3, dtype=np.float64)
+
+
+def test_vec_similarity_identical():
+    assert vec_similarity(_VEC_A, _VEC_A) == pytest.approx(1.0, abs=1e-9)
+
+
+def test_vec_similarity_orthogonal():
+    assert vec_similarity(_VEC_A, _VEC_B) == pytest.approx(0.0, abs=1e-9)
+
+
+def test_vec_similarity_opposite():
+    assert vec_similarity(_VEC_A, -_VEC_A) == pytest.approx(-1.0, abs=1e-9)
+
+
+def test_vec_similarity_empty_a():
+    assert vec_similarity(_EMPTY, _VEC_A) is None
+
+
+def test_vec_similarity_empty_b():
+    assert vec_similarity(_VEC_A, _EMPTY) is None
+
+
+def test_vec_similarity_zero_norm_a():
+    assert vec_similarity(_ZERO3, _VEC_A) is None
+
+
+def test_vec_similarity_zero_norm_b():
+    assert vec_similarity(_VEC_A, _ZERO3) is None
+
+
+# ---------------------------------------------------------------------------
+# seq_similarity() (issue #69)
+# ---------------------------------------------------------------------------
+
+
+def _seq(n: int, hot: int) -> np.ndarray:
+    """(12, n) matrix with a unit vector at row ``hot`` in every column."""
+    s = np.zeros((12, n), dtype=np.float64)
+    s[hot, :] = 1.0
+    return s
+
+
+def test_seq_similarity_identical():
+    a = _seq(8, 9)
+    assert seq_similarity(a, a) == pytest.approx(1.0, abs=1e-9)
+
+
+def test_seq_similarity_orthogonal():
+    a = _seq(8, 9)
+    b = _seq(8, 0)
+    assert seq_similarity(a, b) == pytest.approx(0.0, abs=1e-9)
+
+
+def test_seq_similarity_skips_zero_columns():
+    """Zero-norm columns are skipped; only non-zero pairs contribute."""
+    a = np.zeros((12, 4), dtype=np.float64)
+    b = np.zeros((12, 4), dtype=np.float64)
+    a[9, 0] = 1.0  # col 0: unit vec at A
+    b[9, 0] = 1.0  # col 0: same → cosine 1.0
+    # cols 1,2,3: all-zero → skipped
+    result = seq_similarity(a, b)
+    assert result == pytest.approx(1.0, abs=1e-9)
+
+
+def test_seq_similarity_all_zero_returns_none():
+    a = np.zeros((12, 8), dtype=np.float64)
+    b = np.zeros((12, 8), dtype=np.float64)
+    assert seq_similarity(a, b) is None
+
+
+def test_seq_similarity_wrong_shape_returns_none():
+    a = np.zeros((10, 8), dtype=np.float64)  # not 12 rows
+    b = np.zeros((12, 8), dtype=np.float64)
+    assert seq_similarity(a, b) is None
+
+
+def test_seq_similarity_1d_returns_none():
+    a = np.zeros(12, dtype=np.float64)
+    b = np.zeros((12, 8), dtype=np.float64)
+    assert seq_similarity(a, b) is None
+
+
+def test_seq_similarity_zero_columns_returns_none():
+    a = np.zeros((12, 0), dtype=np.float64)
+    b = np.zeros((12, 0), dtype=np.float64)
+    assert seq_similarity(a, b) is None
+
+
+def test_seq_similarity_different_n_cols_returns_none():
+    a = _seq(8, 9)
+    b = _seq(16, 9)
+    assert seq_similarity(a, b) is None
+
+
+# ---------------------------------------------------------------------------
+# combined_score() — generalised component-list API (issue #69)
+# ---------------------------------------------------------------------------
+
 _CHR_A = np.array([1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 _CHR_B = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0])
-_EMPTY = np.empty(0, dtype=np.float64)
 _ZERO12 = np.zeros(12, dtype=np.float64)
 
 
 def test_combined_score_both_available_equal_weights():
     """Both components available: result is their weighted average."""
-    # emb: cosine = 1.0 (identical), chroma: cosine = 0.0 (orthogonal)
-    # equal weights → (0.5 * 1.0 + 0.5 * 0.0) = 0.5
-    s = combined_score(_EMB_A, _EMB_A, _CHR_A, _CHR_B, 0.5, 0.5)
+    # emb cosine = 1.0 (identical), chroma cosine = 0.0 (orthogonal)
+    # equal weights → (0.5 * 1.0 + 0.5 * 0.0) / 1.0 = 0.5
+    s = combined_score([(1.0, 0.5), (0.0, 0.5)])
     assert s == pytest.approx(0.5, abs=1e-9)
 
 
 def test_combined_score_both_identical():
-    """Identical embeddings and identical chroma → score = 1.0."""
-    s = combined_score(_EMB_A, _EMB_A, _CHR_A, _CHR_A, 0.5, 0.5)
+    """Both similarities = 1.0 → score = 1.0."""
+    s = combined_score([(1.0, 0.5), (1.0, 0.5)])
     assert s == pytest.approx(1.0, abs=1e-9)
 
 
 def test_combined_score_weights_respected():
     """Non-equal weights shift the result proportionally."""
-    # emb cosine = 0.0 (orthogonal), chroma cosine = 1.0 (identical)
-    # w_timbre=0.3, w_harmony=0.7 → (0.3*0 + 0.7*1) / 1.0 = 0.7
-    s = combined_score(_EMB_A, _EMB_B, _CHR_A, _CHR_A, 0.3, 0.7)
+    # w=0.3 component has sim=0.0; w=0.7 component has sim=1.0 → 0.7
+    s = combined_score([(0.0, 0.3), (1.0, 0.7)])
     assert s == pytest.approx(0.7, abs=1e-9)
 
 
-def test_combined_score_timbre_only_when_chroma_empty():
-    """When chroma is empty on either side, harmony is excluded; pure timbre score."""
-    # emb cosine = 1.0; chroma unavailable (empty target)
-    s = combined_score(_EMB_A, _EMB_A, _CHR_A, _EMPTY, 0.5, 0.5)
+def test_combined_score_timbre_only_when_chroma_unavailable():
+    """None component is excluded; single available component dominates."""
+    s = combined_score([(1.0, 0.5), (None, 0.5)])
     assert s == pytest.approx(1.0, abs=1e-9)
 
 
-def test_combined_score_timbre_only_when_chroma_zero_norm():
-    """Zero-norm chroma vector → harmony unavailable; pure timbre score."""
-    s = combined_score(_EMB_A, _EMB_A, _CHR_A, _ZERO12, 0.5, 0.5)
+def test_combined_score_harmony_only_when_timbre_unavailable():
+    """timbre=None falls back to harmony alone."""
+    s = combined_score([(None, 0.5), (1.0, 0.5)])
     assert s == pytest.approx(1.0, abs=1e-9)
 
 
-def test_combined_score_harmony_only_when_timbre_empty():
-    """When embedding is empty on either side, timbre is excluded; pure chroma score."""
-    # emb unavailable; chroma cosine = 1.0
-    s = combined_score(_EMPTY, _EMB_A, _CHR_A, _CHR_A, 0.5, 0.5)
-    assert s == pytest.approx(1.0, abs=1e-9)
-
-
-def test_combined_score_both_unavailable_returns_zero():
-    """Both components empty/zero → 0.0."""
-    s = combined_score(_EMPTY, _EMPTY, _EMPTY, _EMPTY, 0.5, 0.5)
+def test_combined_score_all_none_returns_zero():
+    """All components unavailable → 0.0."""
+    s = combined_score([(None, 0.5), (None, 0.5)])
     assert s == 0.0
 
 
-def test_combined_score_both_empty_emb_zero_chroma():
-    """Empty embedding and zero-norm chroma → 0.0."""
-    s = combined_score(_EMPTY, _EMPTY, _CHR_A, _ZERO12, 0.5, 0.5)
-    assert s == 0.0
+def test_combined_score_empty_list_returns_zero():
+    """Empty component list → 0.0."""
+    assert combined_score([]) == 0.0
+
+
+def test_combined_score_four_components_renormalizes():
+    """Four-component list with one None: weights renormalised over 3 available."""
+    # w_timbre=0.3 sim=1.0, w_harmony=0.2 sim=0.0, w_seq=0.25 None, w_mod=0.25 sim=1.0
+    # available total_w = 0.3+0.2+0.25 = 0.75
+    # numerator = 0.3*1.0 + 0.2*0.0 + 0.25*1.0 = 0.55
+    # result = 0.55 / 0.75
+    s = combined_score([(1.0, 0.3), (0.0, 0.2), (None, 0.25), (1.0, 0.25)])
+    assert s == pytest.approx(0.55 / 0.75, abs=1e-9)
+
+
+def test_combined_score_zero_weight_component():
+    """A zero-weight available component contributes 0 and 0 to total_w."""
+    # w=0.0 sim=1.0 + w=1.0 sim=0.5 → total_w=1.0, num=0.5 → 0.5
+    s = combined_score([(1.0, 0.0), (0.5, 1.0)])
+    assert s == pytest.approx(0.5, abs=1e-9)
+
+
+def test_combined_score_uses_vec_similarity():
+    """End-to-end: build components via vec_similarity and check combined."""
+    emb_a = np.array([1.0, 0.0, 0.0])
+    emb_b = np.array([0.0, 1.0, 0.0])
+    s = combined_score(
+        [
+            (vec_similarity(emb_a, emb_a), 0.5),  # 1.0
+            (vec_similarity(emb_a, emb_b), 0.5),  # 0.0
+        ]
+    )
+    assert s == pytest.approx(0.5, abs=1e-9)
 
 
 def test_combined_score_pure_harmony_weight():
-    """w_timbre=0 forces harmony-only scoring regardless of embedding content."""
-    # emb would give cosine 1.0, but w_timbre=0 excludes it
-    s = combined_score(_EMB_A, _EMB_A, _CHR_A, _CHR_B, 0.0, 1.0)
-    # orthogonal chroma → 0.0
+    """w_timbre=0 component contributes 0 — effective harmony-only scoring."""
+    # sim=1.0 w=0.0 + sim=0.0 w=1.0 → 0.0
+    s = combined_score([(1.0, 0.0), (0.0, 1.0)])
     assert s == pytest.approx(0.0, abs=1e-9)
 
 
 def test_combined_score_pure_timbre_weight():
-    """w_harmony=0 forces timbre-only scoring regardless of chroma content."""
-    # chroma would give cosine 1.0, but w_harmony=0 excludes it
-    s = combined_score(_EMB_A, _EMB_B, _CHR_A, _CHR_A, 1.0, 0.0)
-    # orthogonal emb → 0.0
+    """w_harmony=0 component contributes 0 — effective timbre-only scoring."""
+    # sim=0.0 w=1.0 + sim=1.0 w=0.0 → 0.0
+    s = combined_score([(0.0, 1.0), (1.0, 0.0)])
     assert s == pytest.approx(0.0, abs=1e-9)

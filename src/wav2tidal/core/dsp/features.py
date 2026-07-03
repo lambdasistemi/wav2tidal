@@ -323,6 +323,121 @@ def descriptor_text_v2(
     )
 
 
+def chroma_sequence(
+    y: np.ndarray,
+    sr: int,
+    hop_length: int = 512,
+    n_frames: int = 32,
+) -> np.ndarray:
+    """CQT chroma sequence resampled to a fixed number of frames (issue #69).
+
+    Extracts a per-frame CQT chromagram via ``_chroma``, linearly resamples the
+    time axis to exactly ``n_frames`` columns, and L2-normalises each column
+    (zero-norm columns are left as zero vectors).
+
+    Returns shape ``(12, n_frames)`` float64.  All-zero input → zero matrix.
+
+    Used together with ``seq_similarity`` in the shadow-audition scorer to
+    measure whether a candidate's harmony *moves* like the target window
+    (issue #69 / research `.llm/research-seed-encoding-2-extraction-tools.md`).
+    """
+    y = np.asarray(y, dtype=np.float32)
+    if y.size < hop_length:
+        y = np.pad(y, (0, hop_length - y.size))
+
+    ch = _chroma(y, sr, hop_length)  # (12, T)
+    T = ch.shape[1]
+
+    if T == 0:
+        return np.zeros((12, n_frames), dtype=np.float64)
+
+    out = np.zeros((12, n_frames), dtype=np.float64)
+    src_idx = np.arange(T, dtype=np.float64)
+    dst_idx = np.linspace(0.0, float(T - 1), n_frames)
+    for b in range(12):
+        out[b] = np.interp(dst_idx, src_idx, ch[b].astype(np.float64))
+
+    # L2-normalise each column; leave zero columns as-is.
+    for j in range(n_frames):
+        col_norm = float(np.linalg.norm(out[:, j]))
+        if col_norm > 1e-8:
+            out[:, j] /= col_norm
+
+    return out
+
+
+def modulation_spectrum(
+    y: np.ndarray,
+    sr: int,
+    n_bands: int = 8,
+    n_points: int = 24,
+) -> np.ndarray:
+    """Spectrotemporal modulation spectrum — band-envelope FFT (issue #69).
+
+    Encodes *how* the sound changes: AM rate, tremolo depth, pulse character.
+    Recipe from `.llm/research-seed-encoding-2-extraction-tools.md` (ref
+    arxiv 2505.23509):
+
+    1. Split 100 Hz – 8 kHz into ``n_bands`` log-spaced bands (4th-order
+       Butterworth bandpass, SOS form).
+    2. Per band, compute the Hilbert-transform envelope magnitude.
+    3. FFT the envelope; keep magnitudes in the 0.5 – 16 Hz modulation range,
+       resampled to ``n_points`` bins.
+    4. Stack all bands → flatten → L2-normalise.
+
+    Returns shape ``(n_bands * n_points,)`` float64.
+    Silence (max amplitude < 1e-9) or all-zero output → zero vector.
+    Torch-free; requires scipy (available via the project's nix devShell).
+
+    ``~<20 ms`` CPU per 4 s window at 48 kHz (target budget from issue #69).
+    """
+    from scipy.signal import butter, hilbert, sosfilt
+
+    y = np.asarray(y, dtype=np.float64)
+    n_out = n_bands * n_points
+
+    if y.size == 0 or float(np.max(np.abs(y))) < 1e-9:
+        return np.zeros(n_out, dtype=np.float64)
+
+    nyq = sr / 2.0
+    f_lo, f_hi = 100.0, 8000.0
+    edges = np.logspace(np.log10(f_lo), np.log10(f_hi), n_bands + 1)
+
+    mod_lo, mod_hi = 0.5, 16.0
+    stacked = np.zeros(n_out, dtype=np.float64)
+
+    for i in range(n_bands):
+        bw_lo = edges[i] / nyq
+        bw_hi = min(edges[i + 1] / nyq, 1.0 - 1e-4)
+        bw_lo = max(bw_lo, 1e-4)
+        if bw_lo >= bw_hi - 1e-6:
+            continue
+        try:
+            sos = butter(4, [bw_lo, bw_hi], btype="bandpass", output="sos")
+            filtered = sosfilt(sos, y)
+        except Exception:
+            continue
+
+        envelope = np.abs(hilbert(filtered))
+
+        n_fft = len(envelope)
+        fft_mag = np.abs(np.fft.rfft(envelope))
+        freqs = np.fft.rfftfreq(n_fft, d=1.0 / sr)
+
+        mask = (freqs >= mod_lo) & (freqs <= mod_hi)
+        if not np.any(mask):
+            continue
+
+        target_freqs = np.linspace(mod_lo, mod_hi, n_points)
+        resampled = np.interp(target_freqs, freqs[mask], fft_mag[mask])
+        stacked[i * n_points : (i + 1) * n_points] = resampled
+
+    norm = float(np.linalg.norm(stacked))
+    if norm < 1e-8:
+        return np.zeros(n_out, dtype=np.float64)
+    return stacked / norm
+
+
 def centroid_motion(
     clip: np.ndarray, sr: int, hop_length: int = 512
 ) -> tuple[float, float]:
