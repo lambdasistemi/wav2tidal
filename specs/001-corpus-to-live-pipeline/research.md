@@ -439,3 +439,20 @@ halves within 7.5%, RMS within 2% — the FR-013 scene tolerance.
 Consequence: `scene_route` sends scenes to RT **only for sample layers**
 (buffers; NRT `b_allocRead` is the future path). RT capture remains the
 live-agent path and the validation reference.
+
+### R6 addendum — live capture facts (issue #51, verified 2026-07-03)
+
+- **Recording a null sink's output**: `pw-record --target <sink>.monitor`
+  attaches nothing (records silence). The working invocation is
+  `pw-record -P '{ stream.capture.sink=true }' --target <sink>` —
+  verified with a tone (links inspected via `pw-link -l`).
+- **`SC_JACK_DEFAULT_OUTPUTS` is unreliable** ("couldn't connect" at
+  boot even when the sink exists). Robust wiring: after boot, resolve
+  OUR scsynth in the PipeWire graph — pid → Client → Node → out Ports
+  (`pw-dump`; every scsynth is named plain `SuperCollider` in the link
+  namespace, so names are ambiguous with a fleet running) — and
+  `pw-link` by port id.
+- A `LiveSession.start()` that fails after spawn must kill its process
+  group before re-raising — a leaked sclang holds the SuperDirt UDP
+  port and poisons every later session (same failure family as the
+  batch-renderer orphans).

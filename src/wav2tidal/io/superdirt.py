@@ -127,7 +127,9 @@ def rt_render(
 
 def _make_null_sink(name: str) -> str | None:
     """Load a per-render null sink; returns the pactl module id (fleet-safe:
-    unloading by module TYPE would tear down every other instance's sink)."""
+    unloading by module TYPE would tear down every other instance's sink).
+    Waits until the sink is actually registered — scsynth connects its JACK
+    outputs at boot, and a not-yet-visible sink loses the race silently."""
     if not shutil.which("pactl"):
         return None
     r = subprocess.run(
@@ -137,7 +139,19 @@ def _make_null_sink(name: str) -> str | None:
     )
     if r.returncode != 0:
         return None
-    return r.stdout.strip() or None
+    module_id = r.stdout.strip() or None
+    import time as _time
+
+    deadline = _time.monotonic() + 3.0
+    while _time.monotonic() < deadline:
+        sinks = subprocess.run(
+            ["pactl", "list", "short", "sinks"], capture_output=True, text=True
+        ).stdout
+        if name in sinks:
+            _time.sleep(0.3)  # let the JACK-visible ports settle too
+            return module_id
+        _time.sleep(0.1)
+    return module_id
 
 
 def _unload_null_sink(module_id: str) -> None:
@@ -902,3 +916,150 @@ def rt_render_scene_batch(
         for o in outs:
             _normalize_wav(o, normalize)
     return outs
+
+
+# -- Live session scripts (US3-2, issue #51) ----------------------------------
+
+
+def build_live_boot_script(
+    port: int = 57360,
+    server_port: int = 57160,
+    banks_dir: str | None = None,
+) -> str:
+    """Pure: sclang source for the RESIDENT live session.
+
+    Boots one SuperDirt (fleet-style dedicated ports), applies the known
+    workarounds (unpausable monitor — R7 addenda), then waits for OSC
+    commands on the language port: ``/w2t/load <path>`` loads a generated
+    swap chunk (see ``build_live_swap_chunk``); ``/w2t/quit`` exits.
+    """
+    load_samples = f'~dirt.loadSoundFiles("{banks_dir}/*");\n    ' if banks_dir else ""
+    return f"""(
+s = Server(\\w2t, NetAddr("127.0.0.1", {server_port}), s.options);
+Server.default = s;
+s.options.numWireBufs = 512;
+s.options.memSize = 131072;
+s.waitForBoot {{
+    ~dirt = SuperDirt(2, s);
+    ~dirt.loadSynthDefs;
+    {load_samples}s.sync;
+    ~dirt.start({port}, [0]);
+    s.sync;
+    ~orbit = ~dirt.orbits[0];
+    ~orbit.globalEffects.do {{ |fx|
+        if(fx.name == \\dirt_monitor) {{ fx.synth.free }};
+    }};
+    SynthDef(\\w2t_monitor, {{ |dryBus, effectBus, outBus = 0|
+        var sig = In.ar(dryBus, 2) + In.ar(effectBus, 2);
+        sig = Select.ar(CheckBadValues.ar(sig, post: 0) > 0, [sig, DC.ar(0)]);
+        Out.ar(outBus, Limiter.ar(sig))
+    }}).add;
+    SynthDef(\\w2t_route, {{ |bus, out = 0| Out.ar(out, In.ar(bus, 2)) }}).add;
+    s.sync;
+    ~w2t_monitor = Synth.tail(s.defaultGroup, \\w2t_monitor,
+        [\\dryBus, ~orbit.dryBus.index, \\effectBus, ~orbit.globalEffectBus.index]);
+    ~w2t_scene = nil; ~w2t_gfx = nil; ~w2t_routine = nil; ~w2t_buses = [];
+    OSCdef(\\w2t_load, {{ |msg|
+        msg[1].asString.load;
+        ("W2T_LOADED " ++ msg[1]).postln;
+    }}, '/w2t/load');
+    OSCdef(\\w2t_quit, {{ "W2T_QUIT".postln; 0.exit }}, '/w2t/quit');
+    s.sync;
+    "W2T_LIVE_READY".postln;
+}};
+)
+"""
+
+
+def build_live_swap_chunk(plan, port: int = 57360) -> str:
+    """Pure: sclang chunk that swaps the playing scene (free swapping).
+
+    The new scene spawns into fresh Groups (voices inside the orbit
+    group; per-scene reverb/delay after it), THEN the previous groups,
+    routine, and buses are freed — a hard cut with a tiny overlap rather
+    than a gap. The timeline (trajectory ticks + layer events) LOOPS
+    every ``plan.duration`` seconds until the next swap, so a scene
+    breathes periodically instead of freezing after one pass.
+    """
+    g = dict(plan.globals_static)
+    needs_reverb = any(k in g for k in ("room", "size")) or any(
+        ref == "g_reverb" for _, ref, _, _ in plan.automation
+    )
+    needs_delay = any(k in g for k in ("delaytime", "delayfeedback")) or any(
+        ref == "g_delay" for _, ref, _, _ in plan.automation
+    )
+    lines = [
+        "var oldScene = ~w2t_scene, oldGfx = ~w2t_gfx,"
+        " oldRoutine = ~w2t_routine, oldBuses = ~w2t_buses;",
+        "var buses, nodes = ();",
+        "~w2t_scene = Group.tail(~orbit.group);",
+        "~w2t_gfx = Group.after(~orbit.group);",
+        f"buses = Array.fill({len(plan.chains)}, {{ Bus.audio(s, 2) }});",
+        "~w2t_buses = buses;",
+    ]
+    if needs_reverb:
+        args = ", ".join(f"\\{k}, {_fmt(g[k])}" for k in ("room", "size") if k in g)
+        lines.append(
+            "nodes[\\g_reverb] = Synth.tail(~w2t_gfx,"
+            ' "dirt_reverb" ++ ~dirt.numChannels, '
+            f"[\\dryBus, ~orbit.dryBus.index, \\effectBus, "
+            f"~orbit.globalEffectBus.index{', ' + args if args else ''}]);"
+        )
+    if needs_delay:
+        args = ", ".join(
+            f"\\{k}, {_fmt(g[k])}" for k in ("delaytime", "delayfeedback") if k in g
+        )
+        lines.append(
+            "nodes[\\g_delay] = Synth.tail(~w2t_gfx,"
+            ' "dirt_delay" ++ ~dirt.numChannels, '
+            f"[\\dryBus, ~orbit.dryBus.index, \\effectBus, "
+            f"~orbit.globalEffectBus.index, \\delaySend, 1, \\delayAmp, 1"
+            f"{', ' + args if args else ''}]);"
+        )
+    for i, chain in enumerate(plan.chains):
+        for node in chain:
+            args = " ".join(
+                f"\\{k}, {_fmt(v)}," for k, v in sorted(node.params.items())
+            )
+            lines.append(
+                f'nodes[\\{node.ref}] = Synth.tail(~w2t_scene, "{_def_name(node)}",'
+                f" [{args} \\out, buses[{i}].index]);"
+            )
+        lines.append(
+            f"nodes[\\v{i}_route] = Synth.tail(~w2t_scene, \\w2t_route,"
+            f" [\\bus, buses[{i}].index, \\out, ~orbit.dryBus.index]);"
+        )
+    lines += [
+        "oldRoutine.stop;",
+        "oldScene.free;",
+        "oldGfx.free;",
+        "oldBuses.do(_.free);",
+    ]
+    timeline: list[tuple[float, str]] = []
+    for t, ref, arg, value in plan.automation:
+        timeline.append((t, f"nodes[\\{ref}].set(\\{arg}, {_fmt(value)});"))
+    for t, sound, params in plan.layer_events:
+        play_args = _dirt_args(sound, params)
+        line = (
+            f'NetAddr("127.0.0.1", {port})'
+            f'.sendMsg("/dirt/play", {play_args}, \\orbit, 0);'
+        )
+        timeline.append((t, line))
+    timeline.sort(key=lambda x: x[0])
+    body: list[str] = []
+    t_now = 0.0
+    for t, line in timeline:
+        if t > t_now:
+            body.append(f"{_fmt(float(t - t_now))}.wait;")
+            t_now = t
+        body.append(line)
+    if plan.duration > t_now:
+        body.append(f"{_fmt(float(plan.duration - t_now))}.wait;")
+    body_txt = "\n            ".join(body) if body else f"{_fmt(plan.duration)}.wait;"
+    lines.append(
+        "~w2t_routine = Routine({\n        loop {\n            "
+        + body_txt
+        + "\n        }\n    }).play;"
+    )
+    inner = "\n    ".join(lines)
+    return f"(\n{{\n    {inner}\n}}.value\n)\n"
