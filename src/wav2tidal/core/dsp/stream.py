@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from .features import descriptor_text, estimate_tempo, mean_chroma
+from .features import descriptor_text, descriptor_text_v2, estimate_tempo, mean_chroma
 
 
 @dataclass(frozen=True)
@@ -53,6 +53,7 @@ def windows(
     hop_s: float = 2.0,
     hop_length: int = 512,
     embed: Callable[[np.ndarray, int], np.ndarray | None] | None = None,
+    descriptor_version: int = 1,
 ) -> list[AnalysisWindow]:
     """Slide an analysis window over mono audio ``y`` sampled at ``sr`` Hz.
 
@@ -63,6 +64,10 @@ def windows(
     ``embed`` is an injected callable ``(y, sr) -> np.ndarray | None``.  Pass
     ``None`` for the CI-safe, embedding-free path; if the callable returns
     ``None`` the window's embedding is a zero-length array.
+
+    ``descriptor_version`` selects the descriptor format: 1 (default) uses the
+    v1 bucketed format; 2 uses ``descriptor_text_v2`` (pitch contour + arcs,
+    issue #67).  Default stays 1 until the retrain ships (#68).
     """
     y = np.asarray(y, dtype=np.float32)
     n = len(y)
@@ -82,7 +87,10 @@ def windows(
 
         bpm, _ = estimate_tempo(win, sr, hop_length)
         energy = float(np.sqrt(np.mean(np.square(win.astype(np.float64)))))
-        desc = descriptor_text(win, sr, hop_length)
+        if descriptor_version == 2:
+            desc = descriptor_text_v2(win, sr, hop_length)
+        else:
+            desc = descriptor_text(win, sr, hop_length)
 
         raw_emb = embed(win, sr) if embed is not None else None
         emb = (
