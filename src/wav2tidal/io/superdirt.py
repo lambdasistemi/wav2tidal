@@ -226,7 +226,10 @@ s.waitForBoot {{
         if(fx.name == \\dirt_monitor) {{ fx.synth.free }};
     }};
     SynthDef(\\w2t_monitor, {{ |dryBus, effectBus, outBus = 0|
-        Out.ar(outBus, Limiter.ar(In.ar(dryBus, 2) + In.ar(effectBus, 2)))
+        var sig = In.ar(dryBus, 2) + In.ar(effectBus, 2);
+        // as in dirt_monitor: NaN/Inf samples become silence, not poison
+        sig = Select.ar(CheckBadValues.ar(sig, post: 0) > 0, [sig, DC.ar(0)]);
+        Out.ar(outBus, Limiter.ar(sig))
     }}).add;
     s.sync;
     ~w2t_monitor = Synth.tail(s.defaultGroup, \\w2t_monitor,
@@ -584,8 +587,9 @@ def build_nrt_scene_script(
         "Out.ar(out, In.ar(bus, 2)) }).asBytes]]",
         "[0.0, [\\d_recv, "
         "SynthDef(\\w2t_monitor, { |dryBus, effectBus, outBus = 0| "
-        "Out.ar(outBus, Limiter.ar(In.ar(dryBus, 2) + In.ar(effectBus, 2))) "
-        "}).asBytes]]",
+        "var sig = In.ar(dryBus, 2) + In.ar(effectBus, 2); "
+        "sig = Select.ar(CheckBadValues.ar(sig, post: 0) > 0, [sig, DC.ar(0)]); "
+        "Out.ar(outBus, Limiter.ar(sig)) }).asBytes]]",
     ]
     rows += [f"[0.0, [\\d_recv, SynthDescLib.global[\\{d}].def.asBytes]]" for d in defs]
     rows.append(f"[0.0, [\\s_new, \\w2t_seed, 999, 0, 0, \\seed, {int(seed)}]]")
@@ -665,6 +669,7 @@ def _normalize_wav(path: Path, peak: float = _NORM_PEAK) -> None:
     import soundfile as sf
 
     y, sr = sf.read(str(path), dtype="float64")
+    y = np.nan_to_num(y, nan=0.0, posinf=0.0, neginf=0.0)
     m = float(np.abs(y).max())
     if m > 0:
         y = y * (peak / m)
@@ -824,7 +829,10 @@ s.waitForBoot {{
         if(fx.name == \\dirt_monitor) {{ fx.synth.free }};
     }};
     SynthDef(\\w2t_monitor, {{ |dryBus, effectBus, outBus = 0|
-        Out.ar(outBus, Limiter.ar(In.ar(dryBus, 2) + In.ar(effectBus, 2)))
+        var sig = In.ar(dryBus, 2) + In.ar(effectBus, 2);
+        // as in dirt_monitor: NaN/Inf samples become silence, not poison
+        sig = Select.ar(CheckBadValues.ar(sig, post: 0) > 0, [sig, DC.ar(0)]);
+        Out.ar(outBus, Limiter.ar(sig))
     }}).add;
     SynthDef(\\w2t_route, {{ |bus, out = 0| Out.ar(out, In.ar(bus, 2)) }}).add;
     s.sync;
