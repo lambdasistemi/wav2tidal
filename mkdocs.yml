@@ -10,6 +10,18 @@ theme:
     - content.code.copy
 markdown_extensions:
   - admonition
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:mermaid2.fence_mermaid_custom
+plugins:
+  - search
+  - mermaid2
 nav:
   - Home: index.md
+  - Architecture: architecture.md
+  - Sound engine: sound-engine.md
+  - Language: language.md
+  - Model: model.md
+  - Roadmap: roadmap.md

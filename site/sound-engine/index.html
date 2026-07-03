@@ -1,0 +1,473 @@
+
+<!DOCTYPE html>
+
+<html class="no-js" lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width,initial-scale=1" name="viewport"/>
+<meta content="Learn musical style from WAV corpora and drive TidalCycles live" name="description"/>
+<link href="../architecture/" rel="prev"/>
+<link href="../language/" rel="next"/>
+<link href="../assets/images/favicon.png" rel="icon"/>
+<meta content="mkdocs-1.6.1, mkdocs-material-9.7.0" name="generator"/>
+<title>Sound engine - wav2tidal</title>
+<link href="../assets/stylesheets/main.618322db.min.css" rel="stylesheet"/>
+<link href="../assets/stylesheets/palette.ab4e12ef.min.css" rel="stylesheet"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&amp;display=fallback" rel="stylesheet"/>
+<style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+<script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+</head>
+<body data-md-color-accent="indigo" data-md-color-primary="indigo" data-md-color-scheme="slate" dir="ltr">
+<input autocomplete="off" class="md-toggle" data-md-toggle="drawer" id="__drawer" type="checkbox"/>
+<input autocomplete="off" class="md-toggle" data-md-toggle="search" id="__search" type="checkbox"/>
+<label class="md-overlay" for="__drawer"></label>
+<div data-md-component="skip">
+<a class="md-skip" href="#sound-engine">
+          Skip to content
+        </a>
+</div>
+<div data-md-component="announce">
+</div>
+<header class="md-header md-header--shadow" data-md-component="header">
+<nav aria-label="Header" class="md-header__inner md-grid">
+<a aria-label="wav2tidal" class="md-header__button md-logo" data-md-component="logo" href=".." title="wav2tidal">
+<svg viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"></path></svg>
+</a>
+<label class="md-header__button md-icon" for="__drawer">
+<svg viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"></path></svg>
+</label>
+<div class="md-header__title" data-md-component="header-title">
+<div class="md-header__ellipsis">
+<div class="md-header__topic">
+<span class="md-ellipsis">
+            wav2tidal
+          </span>
+</div>
+<div class="md-header__topic" data-md-component="header-topic">
+<span class="md-ellipsis">
+            
+              Sound engine
+            
+          </span>
+</div>
+</div>
+</div>
+<label class="md-header__button md-icon" for="__search">
+<svg viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"></path></svg>
+</label>
+<div class="md-search" data-md-component="search" role="dialog">
+<label class="md-search__overlay" for="__search"></label>
+<div class="md-search__inner" role="search">
+<form class="md-search__form" name="search">
+<input aria-label="Search" autocapitalize="off" autocomplete="off" autocorrect="off" class="md-search__input" data-md-component="search-query" name="query" placeholder="Search" required="" spellcheck="false" type="text"/>
+<label class="md-search__icon md-icon" for="__search">
+<svg viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"></path></svg>
+<svg viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"></path></svg>
+</label>
+<nav aria-label="Search" class="md-search__options">
+<button aria-label="Clear" class="md-search__icon md-icon" tabindex="-1" title="Clear" type="reset">
+<svg viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"></path></svg>
+</button>
+</nav>
+</form>
+<div class="md-search__output">
+<div class="md-search__scrollwrap" data-md-scrollfix="" tabindex="0">
+<div class="md-search-result" data-md-component="search-result">
+<div class="md-search-result__meta">
+            Initializing search
+          </div>
+<ol class="md-search-result__list" role="presentation"></ol>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="md-header__source">
+<a class="md-source" data-md-component="source" href="https://github.com/lambdasistemi/wav2tidal" title="Go to repository">
+<div class="md-source__icon md-icon">
+<svg viewbox="0 0 448 512" xmlns="http://www.w3.org/2000/svg"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"></path></svg>
+</div>
+<div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+</div>
+</nav>
+</header>
+<div class="md-container" data-md-component="container">
+<main class="md-main" data-md-component="main">
+<div class="md-main__inner md-grid">
+<div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation">
+<div class="md-sidebar__scrollwrap">
+<div class="md-sidebar__inner">
+<nav aria-label="Navigation" class="md-nav md-nav--primary" data-md-level="0">
+<label class="md-nav__title" for="__drawer">
+<a aria-label="wav2tidal" class="md-nav__button md-logo" data-md-component="logo" href=".." title="wav2tidal">
+<svg viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"></path></svg>
+</a>
+    wav2tidal
+  </label>
+<div class="md-nav__source">
+<a class="md-source" data-md-component="source" href="https://github.com/lambdasistemi/wav2tidal" title="Go to repository">
+<div class="md-source__icon md-icon">
+<svg viewbox="0 0 448 512" xmlns="http://www.w3.org/2000/svg"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"></path></svg>
+</div>
+<div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+</div>
+<ul class="md-nav__list" data-md-scrollfix="">
+<li class="md-nav__item">
+<a class="md-nav__link" href="..">
+<span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../architecture/">
+<span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+</a>
+</li>
+<li class="md-nav__item md-nav__item--active">
+<input class="md-nav__toggle md-toggle" id="__toc" type="checkbox"/>
+<label class="md-nav__link md-nav__link--active" for="__toc">
+<span class="md-ellipsis">
+    
+  
+    Sound engine
+  
+
+    
+  </span>
+<span class="md-nav__icon md-icon"></span>
+</label>
+<a class="md-nav__link md-nav__link--active" href="./">
+<span class="md-ellipsis">
+    
+  
+    Sound engine
+  
+
+    
+  </span>
+</a>
+<nav aria-label="Table of contents" class="md-nav md-nav--secondary">
+<label class="md-nav__title" for="__toc">
+<span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+<ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#three-paths-one-fidelity-rule">
+<span class="md-ellipsis">
+      
+        Three paths, one fidelity rule
+      
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#scenes-as-synth-graphs">
+<span class="md-ellipsis">
+      
+        Scenes as synth graphs
+      
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#the-parallel-fleet">
+<span class="md-ellipsis">
+      
+        The parallel fleet
+      
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#superdirt-behaviours-we-engineered-around">
+<span class="md-ellipsis">
+      
+        SuperDirt behaviours we engineered around
+      
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#hardware-gates">
+<span class="md-ellipsis">
+      
+        Hardware gates
+      
+    </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../language/">
+<span class="md-ellipsis">
+    
+  
+    Language
+  
+
+    
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../model/">
+<span class="md-ellipsis">
+    
+  
+    Model
+  
+
+    
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../roadmap/">
+<span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+</a>
+</li>
+</ul>
+</nav>
+</div>
+</div>
+</div>
+<div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc">
+<div class="md-sidebar__scrollwrap">
+<div class="md-sidebar__inner">
+<nav aria-label="Table of contents" class="md-nav md-nav--secondary">
+<label class="md-nav__title" for="__toc">
+<span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+<ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#three-paths-one-fidelity-rule">
+<span class="md-ellipsis">
+      
+        Three paths, one fidelity rule
+      
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#scenes-as-synth-graphs">
+<span class="md-ellipsis">
+      
+        Scenes as synth graphs
+      
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#the-parallel-fleet">
+<span class="md-ellipsis">
+      
+        The parallel fleet
+      
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#superdirt-behaviours-we-engineered-around">
+<span class="md-ellipsis">
+      
+        SuperDirt behaviours we engineered around
+      
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#hardware-gates">
+<span class="md-ellipsis">
+      
+        Hardware gates
+      
+    </span>
+</a>
+</li>
+</ul>
+</nav>
+</div>
+</div>
+</div>
+<div class="md-content" data-md-component="content">
+<article class="md-content__inner md-typeset">
+<h1 id="sound-engine">Sound engine</h1>
+<p>All audio is produced by SuperCollider/SuperDirt — the same quark, the
+same synthdefs, offline and live. This page explains the three render
+paths, how scenes become synth graphs, the parallel fleet, and the
+SuperDirt behaviours we had to engineer around (each verified on the box
+and recorded in the
+<a href="https://github.com/lambdasistemi/wav2tidal/blob/main/specs/001-corpus-to-live-pipeline/research.md">R7 research addenda</a>).</p>
+<h2 id="three-paths-one-fidelity-rule">Three paths, one fidelity rule</h2>
+<table>
+<thead>
+<tr>
+<th></th>
+<th><code>mix</code></th>
+<th><code>nrt</code></th>
+<th><code>rt</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>engine</td>
+<td>numpy</td>
+<td><code>scsynth -N</code> (no audio device)</td>
+<td>booted SuperDirt</td>
+</tr>
+<tr>
+<td>covers</td>
+<td>sample lines, gain/speed/pan</td>
+<td>synth voices, bare-def params, per-voice FX chains</td>
+<td>global reverb/delay, sample layers, everything</td>
+</tr>
+<tr>
+<td>reproducible</td>
+<td>byte-exact</td>
+<td>byte-exact (seeded)</td>
+<td>within tolerance</td>
+</tr>
+<tr>
+<td>speed</td>
+<td>instant</td>
+<td>~3–4 s/render (sclang spawn)</td>
+<td>wall-clock (audio plays in real time)</td>
+</tr>
+</tbody>
+</table>
+<p>The router refuses any assignment where a control would silently not
+render — mislabeled training pairs are worse than slow renders.</p>
+<h2 id="scenes-as-synth-graphs">Scenes as synth graphs</h2>
+<p>A scene cannot ride SuperDirt's <code>/dirt/play</code> (SuperDirt spawns nodes
+internally — nothing to automate against). Instead the renderer builds
+the graph itself with known node handles:</p>
+<pre class="mermaid"><code>flowchart LR
+    V0[voice synth<br/>supersaw] --&gt; B0([private bus])
+    B0 --&gt; F1[dirt_hpf] --&gt; F2[dirt_lpf] --&gt; R0[route] --&gt; DRY([orbit dry bus])
+    DRY --&gt; GR[reverb] --&gt; EFF([effect bus])
+    DRY --&gt; GD[delay] --&gt; EFF
+    DRY --&gt; MON[monitor + limiter] 
+    EFF --&gt; MON
+    MON --&gt; OUT([out 0 / recorder])
+    LAYER["/dirt/play layer events"] -.-&gt; DRY
+</code></pre>
+<ul>
+<li>Per-voice <code>dirt_*</code> effect synths are chained <strong>in SuperDirt's module
+  order</strong> (shape → hpf → bpf → crush → coarse → lpf → envelope), with the
+  same one-namespace semantics (<code>resonance</code> reaches both the source def
+  and the chained filter; a secondary param without its activator is
+  inert, as in Tidal).</li>
+<li><strong>Trajectories</strong> are sampled to timed knots
+  (<a href="https://github.com/lambdasistemi/wav2tidal/blob/main/src/wav2tidal/core/pattern/trajectory.py"><code>core/pattern/trajectory.py</code></a>):
+  ramps interpolate in log space for log-tagged params (a cutoff sweep is
+  musical, not arithmetic), walks are seeded, steps repeat per cycle. In
+  NRT these become <code>n_set</code> score rows — <strong>deterministic automation</strong>; in
+  RT, scheduled ticks on the known nodes.</li>
+<li>Renders are peak-normalized to −1 dBFS (PCM_24 — a float WAV would get
+  a timestamped PEAK chunk from libsndfile and break byte-determinism).</li>
+</ul>
+<h2 id="the-parallel-fleet">The parallel fleet</h2>
+<p>NRT renders are independent processes: a thread pool (<code>max_workers</code>)
+fans them out. RT renders are wall-clock-bound, so batches spread across
+a <strong>fleet</strong> of SuperDirt instances (<code>fleet_size</code>), each with its own
+scsynth port, SuperDirt OSC port, and PipeWire null sink (tracked and
+unloaded by pactl module id). Measured: 40 hybrid items, fleet of 4 →
+3.1 s/item vs 5.3 sequential; at corpus scale the boot cost amortizes
+toward <code>fleet_size×</code>. A 100k-pair corpus is an overnight job.</p>
+<h2 id="superdirt-behaviours-we-engineered-around">SuperDirt behaviours we engineered around</h2>
+<p>Everything below was diagnosed empirically (bus meters, <code>/n_trace</code>,
+byte-level determinism checks, per-second envelopes) and is encoded in
+the script builders with tests. The pause items are candidates for an
+upstream report.</p>
+<ol>
+<li><strong>Paused global-effect nodes never sound again after resume</strong> (the
+   bug <em>class</em>, two instances found):</li>
+<li>the orbit's <code>dirt_delay</code> — created paused, silent forever after the
+     event-driven resume. Workaround: spawn a fresh per-job delay with
+     creation args (also guarantees an empty delay line per render).</li>
+<li><code>dirt_monitor</code> — pauses itself after 4 s of orbit silence
+     (<code>DirtPause</code>), then every later render in the batch records zeros.
+     Workaround: replace it at boot with an unpausable monitor
+     (<code>In(dry)+In(effect) → Limiter → out</code>).</li>
+<li><strong>NRT is nondeterministic until the server RNG is seeded</strong> — a
+   <code>RandSeed</code> synth at score time 0 makes noise-carrying defs
+   (superkick's click, snares, hats) byte-identical across renders.</li>
+<li><strong><code>~dirt = (numChannels: 2)</code> never worked</strong> — <code>Object.numChannels</code> is
+   a real method returning 1, so every early NRT render compiled the
+   defs mono. <code>~dirt = 0 ! 2</code> (an Array's <code>numChannels</code> is its size) is
+   the correct fake.</li>
+<li><strong>Default scsynth resources are too small for the broad palette</strong> —
+   GVerb-carrying defs (superprimes, supergrind, superwavemechanics)
+   failed to load or crashed the server mid-batch until <code>numWireBufs =
+   512</code> and <code>memSize = 128 MB</code>.</li>
+<li><strong>Process hygiene</strong>: sclang is run in its own process group and
+   group-killed on timeout — an orphaned sclang holds UDP 57120 and
+   poisons every later real-time run.</li>
+</ol>
+<h2 id="hardware-gates">Hardware gates</h2>
+<p><code>just smoke-audio</code> runs five stages against real SuperCollider: NRT
+determinism, RT capture with FX tail, multi-event NRT with noise defs,
+batch rendering with the delay workaround, and scene automation
+(byte-identical NRT + an audible RT cutoff sweep). It is local-only by
+design — CI never needs an audio stack.</p>
+</article>
+</div>
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+</div>
+</main>
+<footer class="md-footer">
+<div class="md-footer-meta md-typeset">
+<div class="md-footer-meta__inner md-grid">
+<div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" rel="noopener" target="_blank">
+      Material for MkDocs
+    </a>
+</div>
+</div>
+</div>
+</footer>
+</div>
+<div class="md-dialog" data-md-component="dialog">
+<div class="md-dialog__inner md-typeset"></div>
+</div>
+<script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "content.code.copy"], "search": "../assets/javascripts/workers/search.7a47a382.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+<script src="../assets/javascripts/bundle.e71a0d61.min.js"></script>
+<script type="module">import mermaid from "https://unpkg.com/mermaid@10.4.0/dist/mermaid.esm.min.mjs";
+window.mermaidConfig = {default: {
+    startOnLoad: false
+}};</script></body>
+</html>
