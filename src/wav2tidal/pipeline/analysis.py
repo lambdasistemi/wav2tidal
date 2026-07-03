@@ -22,7 +22,7 @@ def analyze_wav(
     hop_s: float = 2.0,
     hop_length: int = 512,
     embedder: Embedder | None = None,
-    descriptor_version: int = 1,
+    descriptor_version: int = 2,
 ) -> list[AnalysisWindow]:
     """Read ``path``, slide the analysis window, and return AnalysisWindow objects.
 

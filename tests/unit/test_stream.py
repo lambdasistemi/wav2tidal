@@ -126,8 +126,9 @@ def test_energy_tracks_amplitude():
 
 def test_chirp_descriptor_rising():
     # sweep 200 Hz → 4000 Hz over 8 s — centroid climbs, expect motion=rising
+    # (v1 semantics; v2 encodes the same rise in the brt arc instead)
     y = chirp(200.0, 4000.0, 8.0)
-    wins = windows(y, SR, window_s=8.0, hop_s=8.0)
+    wins = windows(y, SR, window_s=8.0, hop_s=8.0, descriptor_version=1)
     assert len(wins) >= 1
     assert "motion=rising" in wins[0].descriptor
 
@@ -429,25 +430,27 @@ _V2_PATTERN = re.compile(
 )
 
 
-def test_windows_default_descriptor_is_v1():
-    """windows() with no descriptor_version produces v1-format descriptors."""
+def test_windows_default_descriptor_is_v2():
+    """windows() with no descriptor_version produces v2-format descriptors
+    (default flipped after the byt5-4k-v2 retrain, issue #68)."""
     y = white_noise(4.0, amp=0.5, seed=50)
     wins = windows(y, SR, window_s=4.0, hop_s=4.0)
     assert len(wins) >= 1
     for w in wins:
-        assert _V1_PATTERN.search(
+        assert _V2_PATTERN.search(
             w.descriptor
-        ), f"Expected v1 descriptor, got: {w.descriptor!r}"
+        ), f"Expected v2 descriptor, got: {w.descriptor!r}"
 
 
 def test_windows_descriptor_version_1_explicit():
-    """windows(descriptor_version=1) is identical to the default."""
+    """windows(descriptor_version=1) still yields v1 descriptors (back-compat)."""
     y = white_noise(4.0, amp=0.5, seed=51)
-    default_wins = windows(y, SR, window_s=4.0, hop_s=4.0)
     v1_wins = windows(y, SR, window_s=4.0, hop_s=4.0, descriptor_version=1)
-    assert len(default_wins) == len(v1_wins)
-    for a, b in zip(default_wins, v1_wins, strict=True):
-        assert a.descriptor == b.descriptor
+    assert len(v1_wins) >= 1
+    for w in v1_wins:
+        assert _V1_PATTERN.search(
+            w.descriptor
+        ), f"Expected v1 descriptor, got: {w.descriptor!r}"
 
 
 def test_windows_descriptor_version_2():
@@ -497,8 +500,8 @@ def test_analyze_wav_descriptor_version_passthrough(tmp_path):
         ), f"Expected v1 from analyze_wav, got: {w.descriptor!r}"
 
 
-def test_analyze_wav_default_is_v1(tmp_path):
-    """analyze_wav default (no descriptor_version) produces v1 descriptors."""
+def test_analyze_wav_default_is_v2(tmp_path):
+    """analyze_wav default produces v2 descriptors (issue #68 default flip)."""
     sr = 8000
     y = white_noise(8.0, sr=sr, amp=0.5, seed=61)
     wav_path = tmp_path / "test_default.wav"
@@ -507,4 +510,4 @@ def test_analyze_wav_default_is_v1(tmp_path):
     result = analyze_wav(wav_path, target_sr=sr, window_s=4.0, hop_s=4.0)
     assert len(result) >= 1
     for w in result:
-        assert _V1_PATTERN.search(w.descriptor)
+        assert _V2_PATTERN.search(w.descriptor)

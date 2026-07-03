@@ -75,7 +75,7 @@ def windows(
     hop_s: float = 2.0,
     hop_length: int = 512,
     embed: Callable[[np.ndarray, int], np.ndarray | None] | None = None,
-    descriptor_version: int = 1,
+    descriptor_version: int = 2,
 ) -> list[AnalysisWindow]:
     """Slide an analysis window over mono audio ``y`` sampled at ``sr`` Hz.
 
