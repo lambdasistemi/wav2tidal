@@ -12,7 +12,7 @@ and recorded in the
 | | `mix` | `nrt` | `rt` |
 |---|---|---|---|
 | engine | numpy | `scsynth -N` (no audio device) | booted SuperDirt |
-| covers | sample lines, gain/speed/pan | synth voices, bare-def params, per-voice FX chains | global reverb/delay, sample layers, everything |
+| covers | sample lines, gain/speed/pan | synth voices, FX chains, **global reverb/delay** (#40) | sample layers; the live agent |
 | reproducible | byte-exact | byte-exact (seeded) | within tolerance |
 | speed | instant | ~3–4 s/render (sclang spawn) | wall-clock (audio plays in real time) |
 
