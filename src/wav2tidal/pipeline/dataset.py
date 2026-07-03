@@ -32,12 +32,7 @@ from pathlib import Path
 import numpy as np
 
 from ..core.config import DatasetConfig
-from ..core.dsp.features import (
-    centroid_motion,
-    estimate_key,
-    estimate_tempo,
-    onset_rate,
-)
+from ..core.dsp.features import descriptor_text
 from ..core.pattern.dirt import (
     MIX,
     NRT,
@@ -65,43 +60,6 @@ from ..core.render.schedule import schedule_events
 from ..io.banks import load_banks
 from ..io.storage import Workspace
 from ..io.wav import read_wav, write_wav
-
-_DENSITY_EDGES = (2.0, 6.0)  # onsets/sec -> lo / mid / hi
-_BRIGHT_EDGES = (1500.0, 3000.0, 5000.0, 7000.0)  # spectral centroid Hz -> 1..5
-
-
-def _bucket(value: float, edges) -> int:
-    return sum(1 for e in edges if value >= e)
-
-
-def _motion_label(ratio: float, wobble: float) -> str:
-    if ratio >= 1.25:
-        return "rising"
-    if ratio <= 0.8:
-        return "falling"
-    return "wobbly" if wobble >= 0.15 else "steady"
-
-
-def descriptor_text(audio: np.ndarray, sr: int, hop_length: int = 512) -> str:
-    """Compact, bucketed description of a rendered clip — the model input.
-
-    ``motion`` is the movement-aware field (issue #30): the direction/
-    oscillation of the spectral-centroid track, so a filter sweep and a
-    fixed timbre of equal average brightness get different descriptions.
-    """
-    import librosa
-
-    bpm, _ = estimate_tempo(audio, sr, hop_length)
-    key, _ = estimate_key(audio, sr, hop_length)
-    density = onset_rate(audio, sr, hop_length)
-    centroid = float(np.mean(librosa.feature.spectral_centroid(y=audio, sr=sr)))
-    density_label = ("lo", "mid", "hi")[_bucket(density, _DENSITY_EDGES)]
-    brightness = _bucket(centroid, _BRIGHT_EDGES) + 1
-    motion = _motion_label(*centroid_motion(audio, sr, hop_length))
-    return (
-        f"tempo={int(round(bpm))} density={density_label} "
-        f"key={key} brightness={brightness}/5 motion={motion}"
-    )
 
 
 @dataclass
