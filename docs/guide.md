@@ -82,6 +82,13 @@ which is designed but not yet built:
 The recipes were deliberately designed so that "nudging" sounds musical:
 a drone drifts, a filter sweeps a bit differently — no sudden teleports.
 
+And here's the intended stage for all this: **a DJ at the input**. A
+skilled DJ mixes records into the machine, so what comes in always has
+great tempo, feeling, and drama — the machine never has to invent
+structure, only follow it. The audience hears *only the machine*, a few
+beats behind, like a shadow orchestra playing the DJ's drama in its own
+voice. The delay isn't a problem to solve; it's the design.
+
 ## The honest gap
 
 Here is the part you should know, because it's the difference between
