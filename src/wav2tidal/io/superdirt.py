@@ -19,6 +19,7 @@ Environment (until the flake pins these):
 
 from __future__ import annotations
 
+import itertools
 import os
 import shutil
 import subprocess
@@ -417,12 +418,24 @@ Score.recordNRT(
 """
 
 
+# sclang's default language-port range is 57120..57129 — TEN concurrent
+# processes system-wide. Parallel rendering exceeds that easily, and the
+# 11th sclang fails to bind, cannot talk to its own server, and hangs to
+# timeout. Hand every invocation an explicit unique port instead.
+_LANG_PORTS = itertools.count()
+
+
+def _next_lang_port() -> int:
+    return 58100 + (next(_LANG_PORTS) % 800)
+
+
 def _run_sclang(
     cmd: list[str], timeout: float, env: dict | None = None
 ) -> subprocess.CompletedProcess:
     """Run sclang in its own process group and kill the WHOLE group on
     timeout — the wrapper is a shell script, so a plain kill orphans
     sclang/scsynth, which then hold the SuperDirt UDP port hostage."""
+    cmd = [cmd[0], "-u", str(_next_lang_port()), *cmd[1:]]
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
