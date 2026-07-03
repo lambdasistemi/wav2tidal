@@ -20,6 +20,7 @@ import numpy as np
 
 from .dsp.stream import AnalysisWindow, input_jump
 from .pattern.generate import SceneDiversity, generate_scene, mutate_scene
+from .pattern.key import parse_key, snap_scene
 from .pattern.model import Scene, Voice, parse_scene_text
 from .pattern.params import spec
 from .pattern.repair import repair_config
@@ -236,7 +237,9 @@ def make_candidates(
     max_attempts = 4 * k
 
     def _finalize(s: Scene) -> Scene:
-        return apply_energy(nrt_safe(s), window.energy)
+        return snap_scene(
+            apply_energy(nrt_safe(s), window.energy), parse_key(window.descriptor)
+        )
 
     seen: set[str] = set()
     pool: list[Scene] = []
