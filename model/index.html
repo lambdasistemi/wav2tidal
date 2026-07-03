@@ -11,26 +11,28 @@
       
       
       
+        <link rel="prev" href="../language/">
       
-        <link rel="next" href="guide/">
+      
+        <link rel="next" href="../roadmap/">
       
       
         
       
       
-      <link rel="icon" href="assets/images/favicon.png">
+      <link rel="icon" href="../assets/images/favicon.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.0">
     
     
       
-        <title>wav2tidal</title>
+        <title>Model - wav2tidal</title>
       
     
     
-      <link rel="stylesheet" href="assets/stylesheets/main.618322db.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.618322db.min.css">
       
         
-        <link rel="stylesheet" href="assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -49,7 +51,7 @@
       
     
     
-    <script>__md_scope=new URL(".",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -72,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#wav2tidal" class="md-skip">
+        <a href="#descriptors-matching-and-the-model" class="md-skip">
           Skip to content
         </a>
       
@@ -88,7 +90,7 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="." title="wav2tidal" class="md-header__button md-logo" aria-label="wav2tidal" data-md-component="logo">
+    <a href=".." title="wav2tidal" class="md-header__button md-logo" aria-label="wav2tidal" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -108,7 +110,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Home
+              Model
             
           </span>
         </div>
@@ -198,7 +200,7 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="." title="wav2tidal" class="md-nav__button md-logo" aria-label="wav2tidal" data-md-component="logo">
+    <a href=".." title="wav2tidal" class="md-nav__button md-logo" aria-label="wav2tidal" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -225,37 +227,10 @@
       
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Home
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="." class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
         
   
   
@@ -271,59 +246,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#what-it-does" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What it does
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#status" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Status
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#development" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Development
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -335,7 +257,7 @@
   
   
     <li class="md-nav__item">
-      <a href="guide/" class="md-nav__link">
+      <a href="../guide/" class="md-nav__link">
         
   
   
@@ -362,7 +284,7 @@
   
   
     <li class="md-nav__item">
-      <a href="architecture/" class="md-nav__link">
+      <a href="../architecture/" class="md-nav__link">
         
   
   
@@ -389,7 +311,7 @@
   
   
     <li class="md-nav__item">
-      <a href="sound-engine/" class="md-nav__link">
+      <a href="../sound-engine/" class="md-nav__link">
         
   
   
@@ -416,7 +338,7 @@
   
   
     <li class="md-nav__item">
-      <a href="language/" class="md-nav__link">
+      <a href="../language/" class="md-nav__link">
         
   
   
@@ -440,10 +362,37 @@
       
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="model/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -459,6 +408,70 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#descriptors-the-shared-language-about-sound" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Descriptors: the shared language about sound
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#matching-sounds-two-mechanisms" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Matching sounds: two mechanisms
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#training" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Training
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#evaluation-validity-is-the-metric" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Evaluation: validity is the metric
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -470,7 +483,7 @@
   
   
     <li class="md-nav__item">
-      <a href="roadmap/" class="md-nav__link">
+      <a href="../roadmap/" class="md-nav__link">
         
   
   
@@ -517,10 +530,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#what-it-does" class="md-nav__link">
+  <a href="#descriptors-the-shared-language-about-sound" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What it does
+        Descriptors: the shared language about sound
       
     </span>
   </a>
@@ -528,10 +541,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#status" class="md-nav__link">
+  <a href="#matching-sounds-two-mechanisms" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Status
+        Matching sounds: two mechanisms
       
     </span>
   </a>
@@ -539,10 +552,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#development" class="md-nav__link">
+  <a href="#training" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Development
+        Training
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#evaluation-validity-is-the-metric" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Evaluation: validity is the metric
       
     </span>
   </a>
@@ -569,57 +593,92 @@
   
 
 
-<h1 id="wav2tidal">wav2tidal</h1>
-<p>Learn a <em>sound</em> from local WAV recordings and play it live through
-<a href="https://tidalcycles.org">TidalCycles</a>/<a href="https://github.com/musikinformatik/SuperDirt">SuperDirt</a>
-— composing <strong>in parameter space</strong>: sustained synth voices whose
-parameters move along shapes over time, with rhythmic sample layers on
-top.</p>
-<p>Everything runs locally and offline on one machine (an AMD Strix Halo
-box: gfx1151 GPU for training, PipeWire for audio). The corpus never
-leaves disk.</p>
-<h2 id="what-it-does">What it does</h2>
-<ol>
-<li><strong>Ingest</strong> — beat-slice a WAV corpus into SuperDirt-loadable sample
-   banks and compute a style profile (CLAP + handcrafted descriptors).</li>
-<li><strong>Compose-able language</strong> — a versioned grammar of <em>configs</em>: event
-   lines (<code>d1 $ s "bd(3,8)" …</code>) and parameter <strong>scenes</strong> (voices +
-   modulation trajectories). Everything the system plays or learns is a
-   sentence of this language.</li>
-<li><strong>Render</strong> — turn configs into audio through the <em>same SuperDirt
-   engine used live</em>: a pure numpy mixer for plain sample lines, headless
-   deterministic SuperCollider NRT for synth material, and real-time
-   capture of a booted SuperDirt (full FX chain) for everything else — in
-   parallel, across a fleet of instances.</li>
-<li><strong>Learn</strong> — describe each rendering in a compact bucketed text and
-   fine-tune a byte-level seq2seq model (ByT5) to invert it:
-   <em>description of a sound → config that produces it</em>.</li>
-<li><strong>Play (next)</strong> — a live evolutionary agent: the model proposes, the
-   engine plays, the capture is scored against the target sound, and
-   mutation walks the config toward it.</li>
-</ol>
-<p><strong>New here? Start with <a href="guide/">The big idea — a gentle tour</a></strong> — no
-jargon, honest about what works and what doesn't yet. Then the
-<strong><a href="architecture/">Architecture</a></strong> overview goes deep, and the
-<strong><a href="roadmap/">Roadmap</a></strong> lists what we will try next.</p>
-<h2 id="status">Status</h2>
-<p><strong>User Story 2 is complete</strong> (2026-07-03): the full corpus → dataset →
-trained-model pipeline runs end to end on the box. Design history and
-verified research live under
-<a href="https://github.com/lambdasistemi/wav2tidal/tree/main/specs/001-corpus-to-live-pipeline"><code>specs/001-corpus-to-live-pipeline/</code></a>
-— the two design-change ADRs
-(<a href="https://github.com/lambdasistemi/wav2tidal/blob/main/specs/001-corpus-to-live-pipeline/design-change-001-sound-first.md">sound-first</a>,
-<a href="https://github.com/lambdasistemi/wav2tidal/blob/main/specs/001-corpus-to-live-pipeline/design-change-002-parameter-scenes.md">parameter scenes</a>)
-are the best short reads on <em>why</em> the system is shaped this way.</p>
-<h2 id="development">Development</h2>
-<div class="highlight"><pre><span></span><code>nix<span class="w"> </span>develop<span class="w">        </span><span class="c1"># CPU dev shell (pure core, tests, CI parity)</span>
-just<span class="w"> </span>ci<span class="w">            </span><span class="c1"># format + lint + tests, mirrors GitHub CI exactly</span>
-just<span class="w"> </span>smoke-audio<span class="w">   </span><span class="c1"># hardware gate: NRT determinism + RT capture (local only)</span>
-just<span class="w"> </span>smoke-gpu<span class="w">     </span><span class="c1"># hardware gate: ROCm + a real bf16 training step</span>
-just<span class="w"> </span>train<span class="w">         </span><span class="c1"># ByT5 fine-tune (inside `nix develop .#training`)</span>
+<h1 id="descriptors-matching-and-the-model">Descriptors, matching, and the model</h1>
+<h2 id="descriptors-the-shared-language-about-sound">Descriptors: the shared language about sound</h2>
+<p>Every rendered clip is summarized as a compact, bucketed text — the
+model's input surface:</p>
+<div class="highlight"><pre><span></span><code>tempo=122 density=mid key=C#m brightness=4/5 motion=rising
 </code></pre></div>
-<p>The default shell is CPU-only; CI never touches ROCm or SuperCollider.
-GPU and audio behaviour are guarded by the two local smoke gates.</p>
+<p>Buckets are deliberate: a learnable, stable vocabulary beats raw floats
+for a text model. <code>motion</code> (rising / falling / steady / wobbly, from the
+spectral-centroid trend and its wobble) is what makes <em>movement</em>
+describable — without it, a filter sweep and a static timbre of equal
+average brightness are indistinguishable, and the model could never
+learn to reach for a <code>ramp</code>.</p>
+<h2 id="matching-sounds-two-mechanisms">Matching sounds: two mechanisms</h2>
+<p><strong>Sound ↔ sound — the score.</strong> Each clip becomes a vector:</p>
+<ul>
+<li>a <strong>CLAP</strong> embedding (<code>laion/larger_clap_music</code>, Apache-2.0, CPU):
+  512 dimensions in a space trained on (audio, caption) pairs — two
+  sounds are close when they would be <em>described</em> similarly. This
+  carries timbre and texture.</li>
+<li>a <strong>handcrafted block</strong>: pooled MFCCs, chroma, tempo/onset statistics
+  — rhythm and key, which CLAP encodes weakly (verified).</li>
+</ul>
+<p>Similarity is the cosine between vectors. Ear-verified in US1: querying
+the corpus with a track ranks genuinely similar tracks above dissimilar
+ones. The honest limitation: cosine-over-CLAP measures "the same kind of
+sound", not "the identical sound" — for steering a live instrument
+toward a <em>character</em>, that is a feature.</p>
+<p><strong>Sound ↔ config — the model.</strong> No direct audio comparison: the dataset
+describes each render, ByT5 learns description → config, and at play
+time the target sound goes through the same describer. Live (US3), the
+two compose: the model proposes, the engine plays, capture-and-cosine
+judges, evolution refines.</p>
+<h2 id="training">Training</h2>
+<ul>
+<li><strong>Model</strong>: <code>google/byt5-small</code> (300 M params, byte-level — pattern
+  punctuation like <code>~ [ ] # :</code> can never be mangled by a tokenizer),
+  pinned by commit, cached project-locally.</li>
+<li><strong>Data</strong>: (descriptor → config-text) pairs from the hybrid dataset —
+  parameter scenes and event lines, each carrying its renderer and kind,
+  under an explicit reproducibility contract.</li>
+<li><strong>Loop</strong>: a compact seeded manual loop — full fine-tune, <strong>fp32 master
+  weights + bf16 autocast</strong> on the gfx1151 GPU. The full-bf16 cast that
+  seems natural silently stalls AdamW (updates below one bf16 ulp are
+  lost); the symptom is a loss plateau <em>without</em> overfitting and greedy
+  repetition collapse. Fixing precisely this took grammar validity from
+  5% to 80% on the first corpus.</li>
+<li><strong>Determinism</strong>: seeded end to end — identical losses to four decimal
+  places across runs.</li>
+<li><strong>Loss floor</strong>: config bytes are dominated by 3-significant-figure
+  parameter values the descriptor genuinely underdetermines, so
+  cross-entropy cannot approach zero. Validity, not loss, is the gate.</li>
+</ul>
+<h2 id="evaluation-validity-is-the-metric">Evaluation: validity is the metric</h2>
+<p>Held-out descriptors are decoded greedily and scored by the <em>same</em>
+grammar and validator as everything else:</p>
+<table>
+<thead>
+<tr>
+<th>metric</th>
+<th>meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>grammar_valid</code></td>
+<td>parses as a sentence of the language</td>
+</tr>
+<tr>
+<td><code>validator_valid</code></td>
+<td>semantically valid as-is (inventory, ranges, bounds)</td>
+</tr>
+<tr>
+<td><code>repaired_valid</code></td>
+<td>valid after the minimal repair pass</td>
+</tr>
+<tr>
+<td><code>exact_match</code></td>
+<td>byte-identical to the reference (diagnostic only)</td>
+</tr>
+</tbody>
+</table>
+<p>First-corpus baseline (400 pairs, 40 epochs): <strong>80% grammar-valid, 80%
+repaired-valid</strong>; the residual 20% are unterminated generations — a
+termination problem, not a grammar one. The designed route to ≥95% is
+grammar-constrained decoding plus a larger corpus (see the
+<a href="../roadmap/">Roadmap</a>).</p>
 
 
 
@@ -669,10 +728,10 @@ GPU and audio behaviour are guarded by the two local smoke gates.</p>
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": ".", "features": ["navigation.sections", "content.code.copy"], "search": "assets/javascripts/workers/search.7a47a382.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "content.code.copy"], "search": "../assets/javascripts/workers/search.7a47a382.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="assets/javascripts/bundle.e71a0d61.min.js"></script>
+      <script src="../assets/javascripts/bundle.e71a0d61.min.js"></script>
       
     
   </body>
