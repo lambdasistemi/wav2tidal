@@ -18,6 +18,7 @@ from pathlib import Path
 
 import numpy as np
 
+from ..core.dsp.features import mean_chroma
 from ..core.pattern.dirt import scene_plan
 from ..core.pattern.model import Scene
 from ..core.pattern.validate import Sources
@@ -26,9 +27,9 @@ from ..core.pursuit import (
     PursuitConfig,
     PursuitState,
     advance,
+    combined_score,
     decide,
     make_candidates,
-    score,
     select,
     tempo_to_cps,
 )
@@ -146,6 +147,7 @@ def run_pursuit(
                     except Exception as exc:
                         log.warning("Render failed gen=%d cand=%d: %s", gen_i, j, exc)
 
+            _empty = np.empty(0, dtype=np.float64)
             # Score each successfully rendered candidate.
             for j, wav_path in enumerate(wav_paths):
                 if wav_path is None:
@@ -156,9 +158,18 @@ def run_pursuit(
                     cand_emb = (
                         np.asarray(raw_emb, dtype=np.float64)
                         if raw_emb is not None
-                        else np.empty(0, dtype=np.float64)
+                        else _empty
                     )
-                    scores_list[j] = score(cand_emb, window.embedding)
+                    cand_chroma = mean_chroma(loaded.y, loaded.sr)
+                    target_chroma = getattr(window, "chroma", _empty)
+                    scores_list[j] = combined_score(
+                        cand_emb,
+                        window.embedding,
+                        cand_chroma,
+                        target_chroma,
+                        cfg.w_timbre,
+                        cfg.w_harmony,
+                    )
                 except Exception as exc:
                     log.warning("Score failed gen=%d cand=%d: %s", gen_i, j, exc)
 

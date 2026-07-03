@@ -15,6 +15,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from wav2tidal.core.dsp.features import mean_chroma
 from wav2tidal.core.dsp.stream import AnalysisWindow
 from wav2tidal.core.pattern.model import Scene
 from wav2tidal.core.pattern.validate import Sources
@@ -399,3 +400,91 @@ def test_write_session_log_creates_parent(tmp_path):
     assert nested.exists()
     loaded = json.loads(nested.read_text())
     assert len(loaded) == 1
+
+
+# ---------------------------------------------------------------------------
+# Harmonic A/B: in-key candidate wins via chroma (issue #59)
+# ---------------------------------------------------------------------------
+
+_SR_H = 8000  # low rate — fast test
+
+
+def _sine_wav(freq: float, dur_s: float = 0.25, sr: int = _SR_H) -> np.ndarray:
+    t = np.arange(int(sr * dur_s)) / sr
+    return (0.3 * np.sin(2 * np.pi * freq * t)).astype(np.float32)
+
+
+def test_harmonic_ab_in_key_candidate_wins(tmp_path):
+    """In-key candidate beats out-of-key when CLAP embeddings are identical.
+
+    Candidate 0 → 440 Hz sine (A4, in-key); candidate 1 → 370 Hz sine
+    (F#4, out-of-key relative to A).  Target chroma is built from a 440 Hz
+    reference.  With equal timbre embeddings, the chroma term lifts cand0.
+    (issue #59)
+    """
+    # Target chroma — computed from an A4 reference sine
+    ref_y = _sine_wav(440.0)
+    target_chroma = mean_chroma(ref_y, _SR_H)
+    assert float(np.linalg.norm(target_chroma)) > 0.5, "reference chroma is zero"
+
+    # Both candidates get an identical timbre embedding (CLAP deaf to harmony)
+    fixed_emb = np.array([1.0, 0.0, 0.0], dtype=np.float64)
+
+    def fixed_embed(y: np.ndarray, sr: int) -> np.ndarray:
+        return fixed_emb
+
+    def harmonic_render(
+        scene: Scene, out_wav: Path, duration_s: float, cps: float, seed: int
+    ) -> Path:
+        # cand0 → in-key (440 Hz); cand1 → out-of-key (370 Hz)
+        freq = 440.0 if "cand0" in out_wav.name else 370.0
+        write_wav(out_wav, _sine_wav(freq), _SR_H)
+        return out_wav
+
+    win = AnalysisWindow(
+        t0=0.0,
+        t1=4.0,
+        descriptor="tempo=120 density=lo key=A brightness=3/5 motion=steady",
+        tempo=120.0,
+        energy=0.1,
+        embedding=fixed_emb,
+        chroma=target_chroma,
+    )
+
+    records = run_pursuit(
+        [win],
+        SOURCES,
+        tmp_path / "out",
+        render=harmonic_render,
+        embed=fixed_embed,
+        cfg=PursuitConfig(k_candidates=2, w_timbre=0.0, w_harmony=1.0),
+    )
+
+    assert len(records) == 1
+    assert (
+        records[0].winner_index == 0
+    ), f"In-key candidate (0) should win; scores={records[0].scores}"
+
+
+def test_harmonic_scoring_window_without_chroma_degrades_to_timbre(tmp_path):
+    """Window without chroma (empty default) falls back to timbre-only; no crash.
+
+    Uses the existing _window() helper which does not set chroma, so the field
+    defaults to an empty array.  Scoring must not raise and must still pick a
+    winner based on the timbre embedding alone.  (issue #59)
+    """
+    ws = _windows(1)  # _window() produces AnalysisWindow with empty chroma
+    # Sanity: the default chroma must be empty
+    assert ws[0].chroma.size == 0
+
+    records = run_pursuit(
+        ws,
+        SOURCES,
+        tmp_path / "out",
+        render=fake_render,
+        embed=fake_embed,
+        cfg=PursuitConfig(k_candidates=3, w_timbre=0.5, w_harmony=0.5),
+    )
+    assert len(records) == 1
+    # Should not crash and should produce a winner
+    assert records[0].winner_index >= 0
