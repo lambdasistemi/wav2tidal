@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import numpy as np
 import pytest
 
@@ -339,3 +341,94 @@ def test_analysis_window_chroma_default_is_empty():
         embedding=np.empty(0, dtype=np.float64),
     )
     assert w.chroma.size == 0
+
+
+# ---------------------------------------------------------------------------
+# descriptor_version plumbing (issue #67)
+# ---------------------------------------------------------------------------
+
+_V1_PATTERN = re.compile(r"tempo=\d+ density=\S+ key=\S+ brightness=\S+ motion=\S+")
+_V2_PATTERN = re.compile(
+    r"tempo=\d+ key=\S+ pit:(\S+ ){7}\S+ dyn:\d{8} ons:\d{8} brt:\d{8}"
+)
+
+
+def test_windows_default_descriptor_is_v1():
+    """windows() with no descriptor_version produces v1-format descriptors."""
+    y = white_noise(4.0, amp=0.5, seed=50)
+    wins = windows(y, SR, window_s=4.0, hop_s=4.0)
+    assert len(wins) >= 1
+    for w in wins:
+        assert _V1_PATTERN.search(
+            w.descriptor
+        ), f"Expected v1 descriptor, got: {w.descriptor!r}"
+
+
+def test_windows_descriptor_version_1_explicit():
+    """windows(descriptor_version=1) is identical to the default."""
+    y = white_noise(4.0, amp=0.5, seed=51)
+    default_wins = windows(y, SR, window_s=4.0, hop_s=4.0)
+    v1_wins = windows(y, SR, window_s=4.0, hop_s=4.0, descriptor_version=1)
+    assert len(default_wins) == len(v1_wins)
+    for a, b in zip(default_wins, v1_wins, strict=True):
+        assert a.descriptor == b.descriptor
+
+
+def test_windows_descriptor_version_2():
+    """windows(descriptor_version=2) produces v2-format descriptors."""
+    y = white_noise(8.0, amp=0.5, seed=52)
+    wins = windows(y, SR, window_s=4.0, hop_s=4.0, descriptor_version=2)
+    assert len(wins) >= 1
+    for w in wins:
+        assert _V2_PATTERN.search(
+            w.descriptor
+        ), f"Expected v2 descriptor, got: {w.descriptor!r}"
+
+
+def test_windows_descriptor_version_2_no_v1_fields():
+    """v2 descriptors do not contain v1 fields like 'density=' or 'motion='."""
+    y = white_noise(4.0, amp=0.5, seed=53)
+    wins = windows(y, SR, window_s=4.0, hop_s=4.0, descriptor_version=2)
+    assert len(wins) >= 1
+    for w in wins:
+        assert "density=" not in w.descriptor
+        assert "motion=" not in w.descriptor
+
+
+def test_analyze_wav_descriptor_version_passthrough(tmp_path):
+    """analyze_wav(descriptor_version=2) uses v2 descriptors."""
+    sr = 8000
+    y = white_noise(8.0, sr=sr, amp=0.5, seed=60)
+    wav_path = tmp_path / "test_v2.wav"
+    write_wav(wav_path, y, sr)
+
+    result_v2 = analyze_wav(
+        wav_path, target_sr=sr, window_s=4.0, hop_s=4.0, descriptor_version=2
+    )
+    result_v1 = analyze_wav(
+        wav_path, target_sr=sr, window_s=4.0, hop_s=4.0, descriptor_version=1
+    )
+
+    assert len(result_v2) >= 1
+    assert len(result_v1) >= 1
+    for w in result_v2:
+        assert _V2_PATTERN.search(
+            w.descriptor
+        ), f"Expected v2 from analyze_wav, got: {w.descriptor!r}"
+    for w in result_v1:
+        assert _V1_PATTERN.search(
+            w.descriptor
+        ), f"Expected v1 from analyze_wav, got: {w.descriptor!r}"
+
+
+def test_analyze_wav_default_is_v1(tmp_path):
+    """analyze_wav default (no descriptor_version) produces v1 descriptors."""
+    sr = 8000
+    y = white_noise(8.0, sr=sr, amp=0.5, seed=61)
+    wav_path = tmp_path / "test_default.wav"
+    write_wav(wav_path, y, sr)
+
+    result = analyze_wav(wav_path, target_sr=sr, window_s=4.0, hop_s=4.0)
+    assert len(result) >= 1
+    for w in result:
+        assert _V1_PATTERN.search(w.descriptor)

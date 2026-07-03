@@ -22,12 +22,16 @@ def analyze_wav(
     hop_s: float = 2.0,
     hop_length: int = 512,
     embedder: Embedder | None = None,
+    descriptor_version: int = 1,
 ) -> list[AnalysisWindow]:
     """Read ``path``, slide the analysis window, and return AnalysisWindow objects.
 
     ``embedder`` defaults to ``NullEmbedder`` (hand-crafted DSP descriptors only,
     no neural embedding, no torch dependency) — the offline/CI-safe path.
     Pass a ``ClapEmbedder`` instance to add CLAP embeddings.
+
+    ``descriptor_version`` is forwarded to ``windows()``; see its docstring.
+    Default is 1 until the retrain ships (#68).
     """
     emb: Embedder = embedder if embedder is not None else NullEmbedder()
 
@@ -43,4 +47,5 @@ def analyze_wav(
         hop_s=hop_s,
         hop_length=hop_length,
         embed=_embed,
+        descriptor_version=descriptor_version,
     )
