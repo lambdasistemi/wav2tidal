@@ -271,10 +271,6 @@ def config_dataset(
         else:
             rt_jobs.append((i, wav_path))
 
-    with ThreadPoolExecutor(max_workers=max(1, cfg.max_workers)) as pool:
-        for fut in [pool.submit(fn, *args) for fn, args in nrt_tasks]:
-            fut.result()  # re-raise render failures
-
     # RT: round-robin the batches across the fleet; each instance owns a
     # distinct scsynth port, SuperDirt OSC port, and null sink, and works
     # through its share of batches sequentially.
@@ -293,7 +289,10 @@ def config_dataset(
             "sink": f"w2t_rt_{k}",
         }
 
-    def _run_fleet(fn, chunk_payloads):
+    def _run_fleet(fn, chunk_payloads, base: int):
+        """Work through the chunks on ``cfg.fleet_size`` instances whose
+        port/sink namespace starts at instance index ``base`` (the event
+        fleet and the scene fleet run CONCURRENTLY and must not collide)."""
         fleet = max(1, cfg.fleet_size)
         per_instance: list[list] = [[] for _ in range(fleet)]
         for n, payload in enumerate(chunk_payloads):
@@ -301,35 +300,47 @@ def config_dataset(
 
         def worker(k: int):
             for payload in per_instance[k]:
-                fn(payload, banks_dir=banks_dir, **_fleet_kw(k))
+                fn(payload, banks_dir=banks_dir, **_fleet_kw(base + k))
 
         with ThreadPoolExecutor(max_workers=fleet) as pool:
             for fut in [pool.submit(worker, k) for k in range(fleet)]:
                 fut.result()
 
-    fn = rt_batch or _default_rt_batch()
-    _run_fleet(
-        fn,
+    # The NRT pool is CPU-bound; the RT fleets are wall-clock-bound (audio
+    # plays in real time at a few % CPU per instance). Run all three
+    # concurrently so NRT work hides inside the RT wall-clock.
+    event_payloads = [
         [
-            [
-                (
-                    path,
-                    total_seconds,
-                    render_events(items[i][1], sources, cfg.cps, cfg.n_cycles, RT),
-                )
-                for i, path in chunk
-            ]
-            for chunk in _chunks(rt_jobs)
-        ],
-    )
-    fn = rt_scenes or _default_rt_scenes()
-    _run_fleet(
-        fn,
-        [
-            [(path, _plan(items[i][1])) for i, path in chunk]
-            for chunk in _chunks(rt_scene_jobs)
-        ],
-    )
+            (
+                path,
+                total_seconds,
+                render_events(items[i][1], sources, cfg.cps, cfg.n_cycles, RT),
+            )
+            for i, path in chunk
+        ]
+        for chunk in _chunks(rt_jobs)
+    ]
+    scene_payloads = [
+        [(path, _plan(items[i][1])) for i, path in chunk]
+        for chunk in _chunks(rt_scene_jobs)
+    ]
+
+    def _run_nrt_pool():
+        with ThreadPoolExecutor(max_workers=max(1, cfg.max_workers)) as pool:
+            for fut in [pool.submit(fn, *args) for fn, args in nrt_tasks]:
+                fut.result()  # re-raise render failures
+
+    ev_fn = rt_batch or _default_rt_batch()
+    sc_fn = rt_scenes or _default_rt_scenes()
+    fleet = max(1, cfg.fleet_size)
+    with ThreadPoolExecutor(max_workers=3) as phases:
+        futures = [
+            phases.submit(_run_nrt_pool),
+            phases.submit(_run_fleet, ev_fn, event_payloads, 0),
+            phases.submit(_run_fleet, sc_fn, scene_payloads, fleet),
+        ]
+        for fut in futures:
+            fut.result()
 
     n = 0
     with open(out_dir / "pairs.jsonl", "w") as fh:
