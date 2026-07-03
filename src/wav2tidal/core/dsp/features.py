@@ -95,6 +95,29 @@ def _chroma(clip: np.ndarray, sr: int, hop_length: int) -> np.ndarray:
         return librosa.feature.chroma_stft(y=clip, sr=sr, hop_length=hop_length)
 
 
+def mean_chroma(y: np.ndarray, sr: int, hop_length: int = 512) -> np.ndarray:
+    """Mean-over-time CQT chroma, L2-normalised — harmonic fingerprint (issue #59).
+
+    Returns a 12-element float64 array (one coefficient per pitch class, C..B).
+    All-zero input, or a clip whose chroma norm is negligibly small, returns a
+    zero vector so callers can detect the unavailable case with a norm check.
+
+    Uses the same ``_chroma`` helper (CQT with STFT fallback) as
+    ``estimate_key`` so the two are consistent across the codebase.
+
+    Torch-free — safe to import and call without GPU dependencies.
+    """
+    y = np.asarray(y, dtype=np.float32)
+    if y.size < hop_length:
+        y = np.pad(y, (0, hop_length - y.size))
+    chroma = _chroma(y, sr, hop_length)  # (12, T)
+    profile = chroma.mean(axis=1).astype(np.float64)  # (12,)
+    norm = float(np.linalg.norm(profile))
+    if norm < 1e-8:
+        return np.zeros(12, dtype=np.float64)
+    return profile / norm
+
+
 def estimate_key(clip: np.ndarray, sr: int, hop_length: int = 512) -> tuple[str, float]:
     """Krumhansl-Schmuckler key estimate -> (label, correlation strength)."""
     chroma = _chroma(clip, sr, hop_length)
