@@ -20,6 +20,7 @@ plugins:
   - mermaid2
 nav:
   - Home: index.md
+  - The big idea: guide.md
   - Architecture: architecture.md
   - Sound engine: sound-engine.md
   - Language: language.md

@@ -30,7 +30,9 @@ leaves disk.
    engine plays, the capture is scored against the target sound, and
    mutation walks the config toward it.
 
-Start with the **[Architecture](architecture.md)** overview; the
+**New here? Start with [The big idea — a gentle tour](guide.md)** — no
+jargon, honest about what works and what doesn't yet. Then the
+**[Architecture](architecture.md)** overview goes deep, and the
 **[Roadmap](roadmap.md)** lists what we will try next.
 
 ## Status
