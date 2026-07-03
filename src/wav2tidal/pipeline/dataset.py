@@ -343,11 +343,17 @@ def config_dataset(
             fut.result()
 
     n = 0
+    dropped_silent = 0
     with open(out_dir / "pairs.jsonl", "w") as fh:
         for i, (kind, obj, mode) in enumerate(items):
             y = audio.get(i)
             if y is None:
                 y = read_wav(audio_dir / f"{i:05d}.wav", cfg.target_sr).y
+            if float(np.abs(y).max()) < 1e-3:
+                # numerically degenerate config sanitized to silence — a
+                # silent pair would mislabel; drop it, keep the corpus honest
+                dropped_silent += 1
+                continue
             fh.write(
                 json.dumps(
                     {
@@ -370,6 +376,7 @@ def config_dataset(
                     "synths": sorted(sources.synths),
                     "custom": sorted(sources.custom),
                 },
+                "dropped_silent": dropped_silent,
                 "reproducibility": _REPRODUCIBILITY,
             },
             indent=2,
