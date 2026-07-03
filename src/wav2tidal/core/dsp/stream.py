@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from .features import descriptor_text, estimate_tempo
+from .features import descriptor_text, estimate_tempo, mean_chroma
 
 
 @dataclass(frozen=True)
@@ -34,6 +34,15 @@ class AnalysisWindow:
     # Excluded from eq/hash: numpy arrays are not hashable and equality is
     # element-wise.  Callers compare embeddings via input_jump or np.array_equal.
     embedding: np.ndarray = field(repr=False, compare=False, hash=False)
+    # Harmonic target for the pursuit score (issue #59).  Filled by windows()
+    # via mean_chroma(); defaults to an empty array so existing direct
+    # constructions remain valid without passing this field.
+    chroma: np.ndarray = field(
+        repr=False,
+        compare=False,
+        hash=False,
+        default_factory=lambda: np.empty(0, dtype=np.float64),
+    )
 
 
 def windows(
@@ -82,6 +91,8 @@ def windows(
             else np.asarray(raw_emb, dtype=np.float64)
         )
 
+        chroma = mean_chroma(win, sr, hop_length)
+
         result.append(
             AnalysisWindow(
                 t0=t0,
@@ -90,6 +101,7 @@ def windows(
                 tempo=bpm,
                 energy=energy,
                 embedding=emb,
+                chroma=chroma,
             )
         )
         start += hop_samples

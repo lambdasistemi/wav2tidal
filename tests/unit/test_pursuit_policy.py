@@ -19,6 +19,7 @@ from wav2tidal.core.pursuit import (
     PursuitState,
     advance,
     apply_energy,
+    combined_score,
     decide,
     make_candidates,
     nrt_safe,
@@ -687,3 +688,85 @@ def test_make_candidates_key_na_does_not_snap():
     for voice in first.voices:
         if "note" in voice.controls:
             assert _note_pc(float(voice.controls["note"])) == 3
+
+
+# ---------------------------------------------------------------------------
+# combined_score() (issue #59)
+# ---------------------------------------------------------------------------
+
+_EMB_A = np.array([1.0, 0.0, 0.0])
+_EMB_B = np.array([0.0, 1.0, 0.0])
+_CHR_A = np.array([1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+_CHR_B = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0])
+_EMPTY = np.empty(0, dtype=np.float64)
+_ZERO12 = np.zeros(12, dtype=np.float64)
+
+
+def test_combined_score_both_available_equal_weights():
+    """Both components available: result is their weighted average."""
+    # emb: cosine = 1.0 (identical), chroma: cosine = 0.0 (orthogonal)
+    # equal weights → (0.5 * 1.0 + 0.5 * 0.0) = 0.5
+    s = combined_score(_EMB_A, _EMB_A, _CHR_A, _CHR_B, 0.5, 0.5)
+    assert s == pytest.approx(0.5, abs=1e-9)
+
+
+def test_combined_score_both_identical():
+    """Identical embeddings and identical chroma → score = 1.0."""
+    s = combined_score(_EMB_A, _EMB_A, _CHR_A, _CHR_A, 0.5, 0.5)
+    assert s == pytest.approx(1.0, abs=1e-9)
+
+
+def test_combined_score_weights_respected():
+    """Non-equal weights shift the result proportionally."""
+    # emb cosine = 0.0 (orthogonal), chroma cosine = 1.0 (identical)
+    # w_timbre=0.3, w_harmony=0.7 → (0.3*0 + 0.7*1) / 1.0 = 0.7
+    s = combined_score(_EMB_A, _EMB_B, _CHR_A, _CHR_A, 0.3, 0.7)
+    assert s == pytest.approx(0.7, abs=1e-9)
+
+
+def test_combined_score_timbre_only_when_chroma_empty():
+    """When chroma is empty on either side, harmony is excluded; pure timbre score."""
+    # emb cosine = 1.0; chroma unavailable (empty target)
+    s = combined_score(_EMB_A, _EMB_A, _CHR_A, _EMPTY, 0.5, 0.5)
+    assert s == pytest.approx(1.0, abs=1e-9)
+
+
+def test_combined_score_timbre_only_when_chroma_zero_norm():
+    """Zero-norm chroma vector → harmony unavailable; pure timbre score."""
+    s = combined_score(_EMB_A, _EMB_A, _CHR_A, _ZERO12, 0.5, 0.5)
+    assert s == pytest.approx(1.0, abs=1e-9)
+
+
+def test_combined_score_harmony_only_when_timbre_empty():
+    """When embedding is empty on either side, timbre is excluded; pure chroma score."""
+    # emb unavailable; chroma cosine = 1.0
+    s = combined_score(_EMPTY, _EMB_A, _CHR_A, _CHR_A, 0.5, 0.5)
+    assert s == pytest.approx(1.0, abs=1e-9)
+
+
+def test_combined_score_both_unavailable_returns_zero():
+    """Both components empty/zero → 0.0."""
+    s = combined_score(_EMPTY, _EMPTY, _EMPTY, _EMPTY, 0.5, 0.5)
+    assert s == 0.0
+
+
+def test_combined_score_both_empty_emb_zero_chroma():
+    """Empty embedding and zero-norm chroma → 0.0."""
+    s = combined_score(_EMPTY, _EMPTY, _CHR_A, _ZERO12, 0.5, 0.5)
+    assert s == 0.0
+
+
+def test_combined_score_pure_harmony_weight():
+    """w_timbre=0 forces harmony-only scoring regardless of embedding content."""
+    # emb would give cosine 1.0, but w_timbre=0 excludes it
+    s = combined_score(_EMB_A, _EMB_A, _CHR_A, _CHR_B, 0.0, 1.0)
+    # orthogonal chroma → 0.0
+    assert s == pytest.approx(0.0, abs=1e-9)
+
+
+def test_combined_score_pure_timbre_weight():
+    """w_harmony=0 forces timbre-only scoring regardless of chroma content."""
+    # chroma would give cosine 1.0, but w_harmony=0 excludes it
+    s = combined_score(_EMB_A, _EMB_B, _CHR_A, _CHR_A, 1.0, 0.0)
+    # orthogonal emb → 0.0
+    assert s == pytest.approx(0.0, abs=1e-9)

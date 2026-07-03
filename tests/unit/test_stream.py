@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from wav2tidal.core.dsp.features import mean_chroma
 from wav2tidal.core.dsp.stream import AnalysisWindow, input_jump, windows
 from wav2tidal.io.wav import write_wav
 from wav2tidal.pipeline.analysis import analyze_wav
@@ -255,3 +256,86 @@ def test_analyze_wav(tmp_path):
         assert w.energy >= 0.0
         # default NullEmbedder → zero-length embedding
         assert w.embedding.size == 0
+
+
+# ---------------------------------------------------------------------------
+# mean_chroma (issue #59)
+# ---------------------------------------------------------------------------
+
+
+def test_mean_chroma_shape_and_unit_norm_on_sine():
+    """mean_chroma returns a 12-element L2-unit vector for a tone."""
+    y = sine(440.0, seconds=2.0)
+    c = mean_chroma(y, SR)
+    assert c.shape == (12,)
+    assert c.dtype == np.float64
+    assert float(np.linalg.norm(c)) == pytest.approx(1.0, abs=1e-6)
+
+
+def test_mean_chroma_zero_on_silence():
+    """mean_chroma returns a zero vector for an all-zero input."""
+    y = silence(2.0)
+    c = mean_chroma(y, SR)
+    assert c.shape == (12,)
+    assert np.allclose(c, 0.0)
+
+
+def test_mean_chroma_stable_across_lengths():
+    """mean_chroma: consistent pitch-class peak for sine at different lengths."""
+    short = mean_chroma(sine(440.0, seconds=1.0), SR)
+    long_ = mean_chroma(sine(440.0, seconds=4.0), SR)
+    # Both should have their max at pitch class A (index 9)
+    assert np.argmax(short) == np.argmax(long_)
+
+
+# ---------------------------------------------------------------------------
+# windows() carries chroma field (issue #59)
+# ---------------------------------------------------------------------------
+
+
+def test_windows_chroma_is_12_dim():
+    """Every window returned by windows() has a 12-element chroma array."""
+    y = white_noise(8.0)
+    wins = windows(y, SR, window_s=4.0, hop_s=4.0)
+    assert len(wins) >= 1
+    for w in wins:
+        assert w.chroma.shape == (12,)
+        assert w.chroma.dtype == np.float64
+
+
+def test_windows_chroma_unit_norm_on_noise():
+    """Chroma on white noise is unit-normed (noise has harmonic content)."""
+    y = white_noise(4.0, amp=0.5, seed=99)
+    wins = windows(y, SR, window_s=4.0, hop_s=4.0)
+    assert len(wins) >= 1
+    norm = float(np.linalg.norm(wins[0].chroma))
+    assert norm == pytest.approx(1.0, abs=1e-6)
+
+
+def test_windows_chroma_zero_on_silence():
+    """Silent windows produce a zero chroma vector."""
+    y = silence(4.0)
+    wins = windows(y, SR, window_s=4.0, hop_s=4.0)
+    assert len(wins) >= 1
+    assert np.allclose(wins[0].chroma, 0.0)
+
+
+def test_windows_chroma_deterministic():
+    """Repeated calls to windows() yield identical chroma arrays."""
+    y = white_noise(8.0, seed=7)
+    runs = [windows(y, SR, window_s=4.0, hop_s=2.0) for _ in range(2)]
+    for a, b in zip(runs[0], runs[1], strict=True):
+        assert np.array_equal(a.chroma, b.chroma)
+
+
+def test_analysis_window_chroma_default_is_empty():
+    """AnalysisWindow constructed without chroma gets an empty default array."""
+    w = AnalysisWindow(
+        t0=0.0,
+        t1=4.0,
+        descriptor="tempo=120 density=lo key=C brightness=3/5 motion=steady",
+        tempo=120.0,
+        energy=0.1,
+        embedding=np.empty(0, dtype=np.float64),
+    )
+    assert w.chroma.size == 0
