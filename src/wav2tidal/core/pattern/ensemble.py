@@ -4,13 +4,16 @@ Axis-1 principle: output must be music by its own rules; the seed only
 steers where.  Key-locking (#58) put every voice in one scale; these passes
 give the simultaneous voices an internal grammar:
 
-1. **Chord snap** — static drone notes land on tonic-seventh chord tones
-   (maj7 / min7 degrees), not just any scale tone.  Trajectory notes keep
-   the full scale (melodic freedom).
+1. **Chord voicing** — static drone notes are assigned distinct chord degrees
+   (root, fifth, third, seventh) sorted bass-up, each placed at the octave
+   nearest its original note.  Guarantees ≥ 2 distinct pitch classes whenever
+   ≥ 2 static-note voices exist.
 2. **Register spacing** — voices with static notes are spread by
    octave-transposition (pitch-class preserving) to a pairwise minimum gap.
 3. **Metric rates** — sine/walk trajectory rates quantise to musical
-   divisions of the TidalCycles cycle (cps × {1/4, 1/2, 1, 2, 4}).
+   divisions of the TidalCycles cycle (cps × {1/4, 1/2, 1}).  Rates below
+   cps/4 are drift and are left untouched.  Depth scales with rate when a
+   rate is raised (depth/rate trade).  De-unison assigns distinct divisions.
 4. **Gain staging** — low voices carry, high voices sparkle.
 
 Pure — no IO.  Apply via ``ensemble_rules`` after ``snap_scene``.
@@ -18,7 +21,9 @@ Pure — no IO.  Apply via ``ensemble_rules`` after ``snap_scene``.
 
 from __future__ import annotations
 
-from wav2tidal.core.pattern.key import PITCH_NAMES, snap_note
+import math
+
+from wav2tidal.core.pattern.key import PITCH_NAMES
 from wav2tidal.core.pattern.model import Scene, Trajectory, Voice
 from wav2tidal.core.pattern.params import spec
 from wav2tidal.core.pattern.shapes import RATE_HI, RATE_LO
@@ -30,8 +35,15 @@ _NOTE_HI: int = int(spec("note").hi)  # +24
 _MAJ7_INTERVALS: frozenset[int] = frozenset({0, 4, 7, 11})
 _MIN7_INTERVALS: frozenset[int] = frozenset({0, 3, 7, 10})
 
-# Metric division multipliers for rate quantisation.
-_METRIC_MULTS: tuple[float, ...] = (0.25, 0.5, 1.0, 2.0, 4.0)
+# Voicing order (bass up): root, fifth, third, seventh — semitones above tonic.
+_MAJ_VOICING: tuple[int, ...] = (0, 7, 4, 11)
+_MIN_VOICING: tuple[int, ...] = (0, 7, 3, 10)
+
+# Metric division multipliers (reduced set — drift below cps/4 is excluded).
+_METRIC_MULTS: tuple[float, ...] = (0.25, 0.5, 1.0)
+
+# Local 3-significant-figure rounding (same convention as shapes._round3).
+_round3 = lambda v: float(f"{v:.3g}")  # noqa: E731
 
 
 # ---------------------------------------------------------------------------
@@ -62,39 +74,82 @@ def chord_classes(label: str) -> frozenset[int] | None:
 
 
 # ---------------------------------------------------------------------------
-# snap_static_notes_to_chord
+# voice_chord
 # ---------------------------------------------------------------------------
 
 
-def snap_static_notes_to_chord(scene: Scene, label: str | None) -> Scene:
-    """Snap every voice's static ``"note"`` control to the nearest chord tone.
+def _nearest_in_pc(orig: float, target_pc: int) -> float:
+    """Return the note nearest to *orig* that has pitch class *target_pc*.
 
-    Trajectory notes are **not** touched — they keep the scale from
-    ``snap_scene`` (melodic freedom).  Returns ``scene`` unchanged when
-    ``label`` yields no chord classes (``None`` / ``"N/A"`` / unknown).
+    Searches all integers n in [_NOTE_LO, _NOTE_HI] with n % 12 == target_pc;
+    ties resolve downward (lower value wins).
+    """
+    k_min = math.ceil((_NOTE_LO - target_pc) / 12)
+    k_max = math.floor((_NOTE_HI - target_pc) / 12)
+    candidates = [target_pc + 12 * k for k in range(k_min, k_max + 1)]
+    if not candidates:
+        return orig
+    return float(min(candidates, key=lambda c: (abs(c - orig), c)))
 
-    Reuses ``snap_note`` from ``key`` with the chord pitch-class set rather
-    than the scale pitch-class set.  Pure — returns a new ``Scene``.
+
+def voice_chord(scene: Scene, label: str | None) -> Scene:
+    """Assign distinct chord degrees to static-note voices (voicing pass).
+
+    Voicing order (bass to treble): root, fifth, third, seventh — voice i
+    (sorted ascending by current note) receives degree ``i % 4``.  Each
+    voice's new note is placed at the octave nearest its original note while
+    keeping the target pitch class.
+
+    Degrees for C major: [C, G, E, B] (pcs 0, 7, 4, 11).
+    Degrees for C minor: [C, G, Eb, Bb] (pcs 0, 7, 3, 10).
+
+    Voices without a static numeric ``"note"`` control are untouched.  Scene
+    order is preserved.  Returns *scene* unchanged when *label* is ``None``
+    or unrecognisable.  Pure.
     """
     if label is None:
         return scene
-    classes = chord_classes(label)
-    if classes is None:
+    if label.endswith("m"):
+        name, voicing = label[:-1], _MIN_VOICING
+    else:
+        name, voicing = label, _MAJ_VOICING
+    if name not in PITCH_NAMES:
+        return scene
+    tonic = PITCH_NAMES.index(name)
+    degrees = tuple((tonic + iv) % 12 for iv in voicing)
+
+    # Collect (scene_index, note) for voices with a static numeric note.
+    indexed: list[tuple[int, float]] = []
+    for i, v in enumerate(scene.voices):
+        note_val = v.controls.get("note")
+        if isinstance(note_val, (int, float)) and not isinstance(note_val, bool):
+            indexed.append((i, float(note_val)))
+
+    if not indexed:
         return scene
 
+    # Sort ascending by note (bass-first voicing assignment).
+    indexed_sorted = sorted(indexed, key=lambda x: x[1])
+
+    new_notes: dict[int, float] = {}
+    for rank, (orig_idx, orig_note) in enumerate(indexed_sorted):
+        target_pc = degrees[rank % 4]
+        new_notes[orig_idx] = _nearest_in_pc(orig_note, target_pc)
+
+    # Rebuild scene preserving order.
     new_voices: list[Voice] = []
-    for v in scene.voices:
-        new_controls: dict = dict(v.controls)
-        if "note" in new_controls and isinstance(new_controls["note"], (int, float)):
-            new_controls["note"] = snap_note(float(new_controls["note"]), classes)
-        new_voices.append(
-            Voice(
-                source_name=v.source_name,
-                n=v.n,
-                controls=new_controls,
-                mods=v.mods,
+    for i, v in enumerate(scene.voices):
+        if i in new_notes:
+            new_voices.append(
+                Voice(
+                    source_name=v.source_name,
+                    n=v.n,
+                    controls={**v.controls, "note": new_notes[i]},
+                    mods=v.mods,
+                )
             )
-        )
+        else:
+            new_voices.append(v)
     return Scene(voices=tuple(new_voices), layer=scene.layer, source=scene.source)
 
 
@@ -210,22 +265,51 @@ def space_registers(scene: Scene, min_gap: int = 3) -> Scene:
 # ---------------------------------------------------------------------------
 
 
+def _with_depth_trade(traj: Trajectory, old_rate: float, new_rate: float) -> Trajectory:
+    """Scale depth when *new_rate* > *old_rate* (depth/rate trade).
+
+    Multiplier = old_rate / new_rate, clamped to [0.15, 1.0].  Depth is
+    rounded to 3 significant figures (same convention as shapes._round3).
+    Returns *traj* unchanged when new_rate ≤ old_rate (no increase).
+    """
+    if new_rate <= old_rate:
+        return traj
+    ratio = max(0.15, min(1.0, old_rate / new_rate))
+    new_depth = _round3(traj.args[1] * ratio)
+    return Trajectory(
+        param=traj.param,
+        shape=traj.shape,
+        args=(traj.args[0], new_depth) + traj.args[2:],
+    )
+
+
 def quantize_rates(scene: Scene, cps: float) -> Scene:
     """Quantise sine/walk trajectory rates to metric divisions of the cycle.
 
-    Candidate rates: ``cps × {0.25, 0.5, 1, 2, 4}``, clamped into
-    ``[RATE_LO, RATE_HI]`` (shapes.py bounds).  For each ``sine`` or ``walk``
-    trajectory the existing rate arg (index 2) is replaced by the nearest
-    valid metric rate (ties go to the lower candidate).
+    Candidate rates: ``cps × {0.25, 0.5, 1.0}``, clamped to
+    ``[RATE_LO, RATE_HI]``.  Rates below ``cps / 4`` are **drift** and are
+    left completely untouched.
 
-    ``cps ≤ 0`` is a guard: returns ``scene`` unchanged.
-    ``ramp`` and ``steps`` trajectories are not touched.
+    When a rate is raised to a higher candidate, depth (arg index 1) is
+    scaled by ``old_rate / new_rate`` (clamped to [0.15, 1.0]) to keep
+    per-tick velocity bounded — fast-shallow or slow-deep.
+
+    **De-unison**: after quantisation, trajectories are walked in (voice,
+    mod) order and each division may only be claimed once.  When a
+    trajectory lands on an already-used division it is moved to the nearest
+    unused one; if all are used, it cycles to index ``(i + 1) % 3``.  The
+    depth/rate trade applies again if this raises the rate.
+
+    ``cps ≤ 0`` → scene returned unchanged.
+    ``ramp`` / ``steps`` trajectories are not touched.
     The ``walk`` seed (arg index 3) is never modified.
     """
     if cps <= 0:
         return scene
 
-    # Precompute clamped metric candidates (sorted ascending).
+    drift_threshold = cps / 4.0
+
+    # Precompute 3-division candidates (de-duplicated, sorted ascending).
     candidates: list[float] = sorted(
         {max(RATE_LO, min(RATE_HI, cps * m)) for m in _METRIC_MULTS}
     )
@@ -233,21 +317,72 @@ def quantize_rates(scene: Scene, cps: float) -> Scene:
     def _nearest(rate: float) -> float:
         return min(candidates, key=lambda c: (abs(c - rate), c))
 
-    def _quantize_traj(traj: Trajectory) -> Trajectory:
-        if traj.shape not in ("sine", "walk") or len(traj.args) < 3:
-            return traj
-        new_args = traj.args[:2] + (_nearest(traj.args[2]),) + traj.args[3:]
-        return Trajectory(param=traj.param, shape=traj.shape, args=new_args)
+    # Mutable copy of each voice's mods list.
+    new_mods: list[list[Trajectory]] = [list(v.mods) for v in scene.voices]
 
+    # Track which (vi, mi) pairs are rhythmic (rate ≥ drift_threshold).
+    rhythmic: set[tuple[int, int]] = set()
+
+    # --- First pass: quantise rhythmic rates and apply depth/rate trade. ---
+    for vi, v in enumerate(scene.voices):
+        for mi, traj in enumerate(v.mods):
+            if traj.shape not in ("sine", "walk") or len(traj.args) < 3:
+                continue
+            old_rate = traj.args[2]
+            if old_rate < drift_threshold:
+                continue  # drift — leave untouched
+            rhythmic.add((vi, mi))
+            new_rate = _nearest(old_rate)
+            updated = Trajectory(
+                param=traj.param,
+                shape=traj.shape,
+                args=traj.args[:2] + (new_rate,) + traj.args[3:],
+            )
+            updated = _with_depth_trade(updated, old_rate, new_rate)
+            new_mods[vi][mi] = updated
+
+    # --- De-unison pass: assign distinct divisions in (voice, mod) order. ---
+    used: set[float] = set()
+    for vi in range(len(scene.voices)):
+        for mi in range(len(new_mods[vi])):
+            if (vi, mi) not in rhythmic:
+                continue
+            traj = new_mods[vi][mi]
+            rate = traj.args[2]
+
+            if rate not in used:
+                used.add(rate)
+            else:
+                # Move to nearest unused division.
+                unused = [c for c in candidates if c not in used]
+                if unused:
+                    new_rate = min(unused, key=lambda c: (abs(c - rate), c))
+                else:
+                    # All used: cycle to next index.
+                    cur_idx = next(
+                        (i for i, c in enumerate(candidates) if c == rate), 0
+                    )
+                    new_rate = candidates[(cur_idx + 1) % len(candidates)]
+
+                old_rate = rate
+                updated = Trajectory(
+                    param=traj.param,
+                    shape=traj.shape,
+                    args=traj.args[:2] + (new_rate,) + traj.args[3:],
+                )
+                updated = _with_depth_trade(updated, old_rate, new_rate)
+                new_mods[vi][mi] = updated
+                used.add(new_rate)
+
+    # Rebuild scene.
     new_voices: list[Voice] = []
-    for v in scene.voices:
-        new_mods = tuple(_quantize_traj(t) for t in v.mods)
+    for vi, v in enumerate(scene.voices):
         new_voices.append(
             Voice(
                 source_name=v.source_name,
                 n=v.n,
                 controls=v.controls,
-                mods=new_mods,
+                mods=tuple(new_mods[vi]),
             )
         )
     return Scene(voices=tuple(new_voices), layer=scene.layer, source=scene.source)
@@ -317,17 +452,19 @@ def ensemble_rules(scene: Scene, label: str | None, cps: float) -> Scene:
 
     Passes (applied left to right):
 
-    1. ``snap_static_notes_to_chord`` — static notes → tonic-seventh chord
-       tones.  Skipped when ``label`` is ``None`` or unknown; the remaining
-       passes still run.
+    1. ``voice_chord`` — assign distinct chord degrees (root, fifth, third,
+       seventh) to static-note voices sorted bass-up; each note placed at the
+       nearest octave.  Skipped when ``label`` is ``None`` or unknown.
     2. ``space_registers`` — octave-spread voices with static notes to a
        pairwise minimum gap of 3 semitones.
-    3. ``quantize_rates`` — sine/walk rates → nearest metric division.
+    3. ``quantize_rates`` — sine/walk rates → nearest metric division
+       (cps × {0.25, 0.5, 1.0}); drift rates (< cps/4) untouched; depth
+       scaled when rate is raised; de-unison assigns distinct divisions.
     4. ``stage_gains`` — multiply gains by register factor.
 
     Pure.  Returns a new ``Scene``; ``scene`` is not mutated.
     """
-    s = snap_static_notes_to_chord(scene, label)
+    s = voice_chord(scene, label)
     s = space_registers(s)
     s = quantize_rates(s, cps)
     s = stage_gains(s)

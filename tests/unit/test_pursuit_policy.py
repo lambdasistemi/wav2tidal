@@ -691,14 +691,16 @@ def test_make_candidates_key_na_does_not_snap():
 
 
 # ---------------------------------------------------------------------------
-# make_candidates() — ensemble rules integration (issue #64)
+# make_candidates() — ensemble rules integration (issue #64 / #66)
 # ---------------------------------------------------------------------------
 
 # F#m7 chord pitch classes: {F#=6, A=9, C#=1, E=4}
 _FSM7_PCS = frozenset({1, 4, 6, 9})
 # Metric rate divisions for cps=0.5 (120 BPM / 4 beats):
-# 0.5 × {0.25, 0.5, 1, 2, 4} = {0.125, 0.25, 0.5, 1.0, 2.0}
-_METRIC_RATES_HALF_CPS = frozenset({0.125, 0.25, 0.5, 1.0, 2.0})
+# 0.5 × {0.25, 0.5, 1.0} = {0.125, 0.25, 0.5}  (2× and 4× dropped in #66)
+_METRIC_RATES_HALF_CPS = frozenset({0.125, 0.25, 0.5})
+# Drift threshold for cps=0.5: rates below this are left untouched
+_DRIFT_THRESHOLD_HALF_CPS = 0.5 / 4  # = 0.125
 
 
 def _window_ensemble(
@@ -719,7 +721,11 @@ def _window_ensemble(
 
 
 def test_make_candidates_static_notes_are_chord_tones_f_sharp_minor():
-    """All static note controls are F#m7 chord tones after ensemble_rules."""
+    """All static note controls are F#m7 chord tones after voice_chord pass.
+
+    voice_chord assigns voicing degrees (root=F#, fifth=C#, third=A, seventh=E)
+    which are exactly the F#m7 pitch classes {6,1,9,4}.
+    """
     rng = random.Random(42)
     state = PursuitState.initial()
     w = _window_ensemble()
@@ -759,7 +765,11 @@ def test_make_candidates_static_note_pairwise_gap_f_sharp_minor():
 
 
 def test_make_candidates_sine_walk_rates_are_metric_f_sharp_minor():
-    """All sine/walk trajectory rates are metric divisions of cps=0.5."""
+    """All sine/walk rates are either metric divisions or drift (< cps/4).
+
+    cps=0.5 → metric set {0.125, 0.25, 0.5} (2× and 4× dropped in #66).
+    Drift rates (< 0.125) are left untouched by quantize_rates.
+    """
     rng = random.Random(42)
     state = PursuitState.initial()
     w = _window_ensemble()
@@ -771,16 +781,23 @@ def test_make_candidates_sine_walk_rates_are_metric_f_sharp_minor():
             for traj in v.mods:
                 if traj.shape in ("sine", "walk") and len(traj.args) >= 3:
                     rate = traj.args[2]
-                    assert (
-                        rate in _METRIC_RATES_HALF_CPS
-                    ), f"Rate {rate} not in metric divisions {_METRIC_RATES_HALF_CPS}"
+                    is_metric = rate in _METRIC_RATES_HALF_CPS
+                    is_drift = rate < _DRIFT_THRESHOLD_HALF_CPS
+                    assert is_metric or is_drift, (
+                        f"Rate {rate} is neither in metric divisions "
+                        f"{_METRIC_RATES_HALF_CPS} nor in drift band "
+                        f"(< {_DRIFT_THRESHOLD_HALF_CPS})"
+                    )
 
 
 def test_make_candidates_gains_reflect_register_staging():
-    """Bass voices have higher gains than treble voices (register staging)."""
-    # Inject a scene with a known bass (note=-24) and treble (note=12) voice.
-    # After the pipeline, the bass gain factor (1.05) must yield a higher or
-    # equal final gain than the treble factor (0.8) × the same energy gain.
+    """Bass voices have higher gains than treble voices (register staging).
+
+    voice_chord for F#m (tonic=6): degrees=[F#(6), C#(1), A(9), E(4)].
+    note=-24 (rank 0) → F#, nearest to -24: -18 (≤ -12 → bass factor 1.05).
+    note=12 (rank 1) → C#, nearest to 12: 13 (≥ 12 → treble factor 0.8).
+    Bass gain must be ≥ treble gain after energy scaling.
+    """
     _BASS_TREBLE = "scene voice supersaw # note -24 voice supersaw # note 12"
 
     def _propose(descriptor: str) -> str:
@@ -794,9 +811,9 @@ def test_make_candidates_gains_reflect_register_staging():
     assert len(pool) >= 1
     first = pool[0]
 
-    # Find the two voices by their final note position (after chord snap).
-    # note=-24 (C, pc=0) → chord snaps to C# at -23 (pc=1 ∈ F#m7): register ≤ -12.
-    # note=12 (C, pc=0) → chord snaps to 13 (C#, pc=1 ∈ F#m7): register ≥ 12.
+    # Find the two voices by their final note position (after voice_chord).
+    # note=-24 → voiced to F# at -18 (≤ -12: bass register).
+    # note=12 → voiced to C# at 13 (≥ 12: treble register).
     gains_by_register: dict[str, float] = {}
     for v in first.voices:
         note = v.controls.get("note")

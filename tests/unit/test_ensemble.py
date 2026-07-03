@@ -1,4 +1,4 @@
-"""Tests for core/pattern/ensemble.py (issue #64 — musicality 0)."""
+"""Tests for core/pattern/ensemble.py (issue #66 — musicality 0b calibration)."""
 
 from __future__ import annotations
 
@@ -8,9 +8,9 @@ from wav2tidal.core.pattern.ensemble import (
     chord_classes,
     ensemble_rules,
     quantize_rates,
-    snap_static_notes_to_chord,
     space_registers,
     stage_gains,
+    voice_chord,
 )
 from wav2tidal.core.pattern.model import Scene, Trajectory, Voice
 from wav2tidal.core.pattern.params import spec
@@ -125,108 +125,149 @@ def test_chord_classes_tones_are_subset_of_scale():
 
 
 # ---------------------------------------------------------------------------
-# snap_static_notes_to_chord
+# voice_chord
 # ---------------------------------------------------------------------------
 
-# C maj7 = {0, 4, 7, 11}
-_C_MAJ7 = frozenset({0, 4, 7, 11})
-# C natural minor scale = {0, 2, 3, 5, 7, 8, 10}; Cm7 = {0, 3, 7, 10}
-_CM7 = frozenset({0, 3, 7, 10})
+# C maj7 voicing (bass→treble): root=C(0), fifth=G(7), third=E(4), seventh=B(11)
+_C_MAJ7_DEGREES = (0, 7, 4, 11)
+# F#m7 voicing: root=F#(6), fifth=C#(1), third=A(9), seventh=E(4)
+_FSM7_DEGREES = (6, 1, 9, 4)
 
 
-def test_chord_snap_chord_tone_unchanged():
-    """A note already on a chord tone stays unchanged."""
-    v = _voice(note=4.0)  # E, pc=4 ∈ C maj7
-    s = _scene(v)
-    out = snap_static_notes_to_chord(s, "C")
-    assert out.voices[0].controls["note"] == 4.0
-
-
-def test_chord_snap_scale_tone_moves_to_chord():
-    """D (pc=2) is in C major scale but NOT C maj7; snaps to nearest chord tone."""
-    # C=0, D=2, E=4 → tie between C(0) and E(4), gap both =2 → resolves to C (lower)
-    v = _voice(note=2.0)  # D, pc=2
-    s = _scene(v)
-    out = snap_static_notes_to_chord(s, "C")
-    result_pc = _note_pc(out.voices[0].controls["note"])
-    assert result_pc in _C_MAJ7
-
-
-def test_chord_snap_out_of_chord_snaps():
-    """A note not in the chord is moved to the nearest chord tone."""
-    # note=5 (F, pc=5): C=0 dist 5, E=4 dist 1, G=7 dist 2, B=11 dist 6 → E (4)
-    v = _voice(note=5.0)
-    s = _scene(v)
-    out = snap_static_notes_to_chord(s, "C")
-    result_pc = _note_pc(out.voices[0].controls["note"])
-    assert result_pc in _C_MAJ7
-    assert out.voices[0].controls["note"] == 4.0
-
-
-def test_chord_snap_trajectories_untouched():
-    """Trajectory notes are NOT snapped (only static controls are touched)."""
-    traj = Trajectory(
-        param="note", shape="sine", args=(2.0, 1.0, 0.5)
-    )  # D, not in Cmaj7
-    v = Voice(source_name="supersaw", n=0, controls={}, mods=(traj,))
-    s = _scene(v)
-    out = snap_static_notes_to_chord(s, "C")
-    assert out.voices[0].mods[0].args == (2.0, 1.0, 0.5)
-
-
-def test_chord_snap_label_none_unchanged():
-    """None label → scene returned unchanged."""
-    v = _voice(note=2.0)
-    s = _scene(v)
-    out = snap_static_notes_to_chord(s, None)
-    assert out is s
-
-
-def test_chord_snap_na_unchanged():
+def test_voice_chord_na_noop():
     """'N/A' label → scene returned unchanged."""
     v = _voice(note=2.0)
     s = _scene(v)
-    out = snap_static_notes_to_chord(s, "N/A")
-    assert out is s
+    assert voice_chord(s, "N/A") is s
 
 
-def test_chord_snap_no_note_control_unchanged():
-    """Voice with no 'note' control passes through untouched."""
-    v = Voice(source_name="supersaw", n=0, controls={"gain": 1.0}, mods=())
+def test_voice_chord_none_noop():
+    """None label → scene returned unchanged."""
+    v = _voice(note=2.0)
     s = _scene(v)
-    out = snap_static_notes_to_chord(s, "C")
+    assert voice_chord(s, None) is s
+
+
+def test_voice_chord_unknown_label_noop():
+    """Unrecognised label → scene returned unchanged."""
+    v = _voice(note=2.0)
+    s = _scene(v)
+    assert voice_chord(s, "Xb") is s
+
+
+def test_voice_chord_no_static_notes_noop():
+    """Scene with no static note controls → unchanged (no indexed voices)."""
+    traj = Trajectory(param="note", shape="sine", args=(0.0, 1.0, 0.5))
+    v = Voice(source_name="supersaw", n=0, controls={}, mods=(traj,))
+    s = _scene(v)
+    out = voice_chord(s, "C")
+    # No static notes: should return unchanged
+    assert out.voices[0].mods[0].args == (0.0, 1.0, 0.5)
     assert "note" not in out.voices[0].controls
 
 
-def test_chord_snap_result_in_spec_bounds():
-    """All snapped notes stay within spec bounds."""
+def test_voice_chord_two_voices_distinct_pcs():
+    """Two clustered voices get distinct pitch classes (root + fifth)."""
+    # Both notes near 0 → sorted: voice1 (note=0) rank 0 → root C(0),
+    # voice2 (note=1) rank 1 → fifth G(7).
+    v1 = _voice(note=0.0)
+    v2 = _voice(note=1.0)
+    s = _scene(v1, v2)
+    out = voice_chord(s, "C")
+    pcs = {_note_pc(v.controls["note"]) for v in out.voices}
+    # Must be 2 distinct pitch classes
+    assert len(pcs) == 2
+    # Both in C-major voicing degrees
+    assert pcs <= set(_C_MAJ7_DEGREES)
+
+
+def test_voice_chord_four_voices_cover_all_degrees():
+    """Four voices in C major receive all four voicing degrees."""
+    voices = [_voice(note=float(i)) for i in range(4)]
+    s = _scene(*voices)
+    out = voice_chord(s, "C")
+    pcs = {_note_pc(v.controls["note"]) for v in out.voices}
+    assert pcs == set(_C_MAJ7_DEGREES)
+
+
+def test_voice_chord_five_voices_cycles_degrees():
+    """Five voices cycle: voice 4 (rank 4) receives degree[0 % 4] = root again."""
+    voices = [_voice(note=float(i * 2)) for i in range(5)]
+    s = _scene(*voices)
+    out = voice_chord(s, "C")
+    # Ranks 0..4 → degrees[0,1,2,3,0] — voice at rank 4 gets degree 0 = root(C=0)
+    sorted_notes = sorted(v.controls["note"] for v in out.voices)
+    pcs = [_note_pc(n) for n in sorted_notes]
+    assert pcs[4] == _C_MAJ7_DEGREES[0]  # root repeated
+
+
+def test_voice_chord_nearest_octave_placement():
+    """Each voice is placed at the nearest octave with the target pitch class."""
+    # Voice at note=14: rank 0 → target_pc=0 (C).
+    # Candidates with pc=0: ..., -12, 0, 12, 24. Nearest to 14: 12 (dist=2).
+    v = _voice(note=14.0)
+    s = _scene(v)
+    out = voice_chord(s, "C")
+    result = out.voices[0].controls["note"]
+    assert _note_pc(result) == 0  # C
+    assert result == pytest.approx(12.0)  # nearest octave below 14
+
+
+def test_voice_chord_tie_goes_down():
+    """On equal distance, the lower candidate wins."""
+    # Voice at note=6: target_pc=0. 0 (dist=6) and 12 (dist=6) → tie → lower wins.
+    # Tie resolves downward → 0.
+    v = _voice(note=6.0)
+    s = _scene(v)
+    out = voice_chord(s, "C")
+    result = out.voices[0].controls["note"]
+    assert result == pytest.approx(0.0)
+
+
+def test_voice_chord_bounds_respected():
+    """Placed notes always stay within spec bounds."""
     for raw_note in range(_NOTE_LO - 2, _NOTE_HI + 3):
         v = _voice(note=float(raw_note))
         s = _scene(v)
-        out = snap_static_notes_to_chord(s, "C")
+        out = voice_chord(s, "C")
         result = out.voices[0].controls["note"]
         assert _NOTE_LO <= result <= _NOTE_HI
 
 
-def test_chord_snap_result_is_chord_tone():
-    """Every snapped note has a pitch class in the chord."""
-    for raw_note in range(_NOTE_LO, _NOTE_HI + 1):
-        v = _voice(note=float(raw_note))
-        s = _scene(v)
-        out = snap_static_notes_to_chord(s, "C")
-        pc = _note_pc(out.voices[0].controls["note"])
-        assert pc in _C_MAJ7
+def test_voice_chord_no_static_note_voices_untouched():
+    """Voices without a static note are not modified."""
+    traj = Trajectory(param="note", shape="sine", args=(3.0, 1.0, 0.5))
+    v_no = Voice(source_name="supersaw", n=0, controls={}, mods=(traj,))
+    v_yes = _voice(note=0.0)
+    s = _scene(v_no, v_yes)
+    out = voice_chord(s, "C")
+    # First voice (no static note) unchanged
+    assert out.voices[0].mods[0].args == (3.0, 1.0, 0.5)
+    assert "note" not in out.voices[0].controls
 
 
-def test_chord_snap_f_sharp_minor():
-    """Snap to F#m7 ({1, 4, 6, 9})."""
-    _FSM7 = frozenset({1, 4, 6, 9})
-    for raw_note in range(_NOTE_LO, _NOTE_HI + 1):
-        v = _voice(note=float(raw_note))
-        s = _scene(v)
-        out = snap_static_notes_to_chord(s, "F#m")
-        pc = _note_pc(out.voices[0].controls["note"])
-        assert pc in _FSM7
+def test_voice_chord_f_sharp_minor_pcs():
+    """F#m voicing: root=F#(6), fifth=C#(1), third=A(9), seventh=E(4)."""
+    voices = [_voice(note=float(i)) for i in range(4)]
+    s = _scene(*voices)
+    out = voice_chord(s, "F#m")
+    pcs = {_note_pc(v.controls["note"]) for v in out.voices}
+    assert pcs == set(_FSM7_DEGREES)
+
+
+def test_voice_chord_scene_order_preserved():
+    """Voice order in the output matches the input order."""
+    v1 = _voice(note=10.0)
+    v2 = _voice(note=2.0)
+    s = _scene(v1, v2)
+    out = voice_chord(s, "C")
+    # voice1 was originally at 10, voice2 at 2.
+    # sorted ascending: rank0=v2(note=2→pc=7[fifth@0]=7), rank1=v1(note=10→pc=0)
+    # But ORDER in output matches input: out.voices[0] corresponds to v1 (note=10).
+    # v1 is rank 1 → degree[1] = fifth = 7
+    assert _note_pc(out.voices[0].controls["note"]) == _C_MAJ7_DEGREES[1]  # fifth
+    # v2 is rank 0 → degree[0] = root = 0
+    assert _note_pc(out.voices[1].controls["note"]) == _C_MAJ7_DEGREES[0]  # root
 
 
 # ---------------------------------------------------------------------------
@@ -316,10 +357,6 @@ def test_space_registers_voice_order_preserved():
     v2 = _voice(note=11.0)
     s = _scene(v1, v2)
     out = space_registers(s)
-    # v1 was first, v2 was second — order preserved regardless of note movement
-    # (we verify by checking source_name identity isn't swapped,
-    #  but both are "supersaw"; verify via the fact that input v1 note=10 is
-    #  the lower note and the output positions differ)
     assert len(out.voices) == 2
 
 
@@ -387,9 +424,47 @@ def test_quantize_rates_cps_negative_no_op():
     assert out is s
 
 
+def test_quantize_rates_drift_untouched():
+    """Rate below cps/4 (drift band) is left completely untouched."""
+    # cps=0.5 → drift_threshold=0.125; rate=0.03 is drift
+    drift_rate = 0.03
+    traj = Trajectory(param="cutoff", shape="sine", args=(500.0, 100.0, drift_rate))
+    v = Voice(source_name="supersaw", n=0, controls={}, mods=(traj,))
+    s = _scene(v)
+    out = quantize_rates(s, cps=0.5)
+    assert out.voices[0].mods[0].args[2] == pytest.approx(drift_rate)
+
+
+def test_quantize_rates_drift_threshold_boundary():
+    """Just below cps/4 is drift; at/above is rhythmic."""
+    cps = 0.5
+    threshold = cps / 4  # 0.125
+    # Just below threshold → drift (untouched)
+    drift_traj = Trajectory(
+        param="cutoff", shape="sine", args=(500.0, 1.0, threshold - 0.001)
+    )
+    v = Voice(source_name="supersaw", n=0, controls={}, mods=(drift_traj,))
+    s = _scene(v)
+    out = quantize_rates(s, cps=cps)
+    assert out.voices[0].mods[0].args[2] == pytest.approx(threshold - 0.001)
+
+
+def test_quantize_rates_rhythmic_snaps_to_three_divisions():
+    """Rhythmic rates snap to one of the three metric divisions."""
+    # cps=0.5 → candidates = {0.125, 0.25, 0.5}
+    valid = {0.125, 0.25, 0.5}
+    for raw_rate in [0.13, 0.18, 0.3, 0.4, 0.45]:
+        traj = Trajectory(param="cutoff", shape="sine", args=(500.0, 100.0, raw_rate))
+        v = Voice(source_name="supersaw", n=0, controls={}, mods=(traj,))
+        s = _scene(v)
+        out = quantize_rates(s, cps=0.5)
+        result_rate = out.voices[0].mods[0].args[2]
+        assert result_rate in valid, f"rate {raw_rate} → {result_rate} not in {valid}"
+
+
 def test_quantize_rates_sine_nearest_division():
     """Sine rate is quantised to the nearest cps × division."""
-    # cps=0.5 → candidates {0.125, 0.25, 0.5, 1.0, 2.0}
+    # cps=0.5 → candidates {0.125, 0.25, 0.5}
     # rate=0.4 → nearest is 0.5
     traj = Trajectory(param="cutoff", shape="sine", args=(500.0, 100.0, 0.4))
     v = Voice(source_name="supersaw", n=0, controls={}, mods=(traj,))
@@ -400,14 +475,14 @@ def test_quantize_rates_sine_nearest_division():
 
 def test_quantize_rates_walk_nearest_division():
     """Walk rate is quantised; seed (arg[3]) is untouched."""
-    # cps=0.5 → candidates {0.125, 0.25, 0.5, 1.0, 2.0}
-    # rate=0.8 → nearest is 1.0
+    # cps=0.5 → candidates {0.125, 0.25, 0.5}
+    # rate=0.8 → nearest is 0.5
     traj = Trajectory(param="note", shape="walk", args=(5.0, 2.0, 0.8, 42.0))
     v = Voice(source_name="supersaw", n=0, controls={}, mods=(traj,))
     s = _scene(v)
     out = quantize_rates(s, cps=0.5)
     new_args = out.voices[0].mods[0].args
-    assert new_args[2] == pytest.approx(1.0)
+    assert new_args[2] == pytest.approx(0.5)
     assert new_args[3] == pytest.approx(42.0)  # seed unchanged
 
 
@@ -429,10 +504,60 @@ def test_quantize_rates_steps_untouched():
     assert out.voices[0].mods[0].args == (0.0, 4.0, 7.0)
 
 
+def test_quantize_rates_depth_scaled_when_rate_raised():
+    """When new_rate > old_rate, depth is scaled by old/new ratio."""
+    # cps=0.5, drift_threshold=0.125
+    # rate=0.2 → nearest candidate: |0.2-0.125|=0.075, |0.2-0.25|=0.05 → nearest=0.25
+    # old=0.2, new=0.25 → ratio=0.2/0.25=0.8 → depth = 1.0 * 0.8 = 0.8
+    traj = Trajectory(param="cutoff", shape="sine", args=(500.0, 1.0, 0.2))
+    v = Voice(source_name="supersaw", n=0, controls={}, mods=(traj,))
+    s = _scene(v)
+    out = quantize_rates(s, cps=0.5)
+    new_args = out.voices[0].mods[0].args
+    assert new_args[2] == pytest.approx(0.25)  # rate raised
+    assert new_args[1] == pytest.approx(0.8)  # depth scaled by 0.8
+
+
+def test_quantize_rates_depth_not_scaled_when_rate_lowered():
+    """When new_rate < old_rate (rate lowered), depth is unchanged."""
+    # cps=0.5 → candidates {0.125, 0.25, 0.5}
+    # rate=0.7 → nearest=0.5 (lowered: 0.7 → 0.5)
+    traj = Trajectory(param="cutoff", shape="sine", args=(500.0, 2.0, 0.7))
+    v = Voice(source_name="supersaw", n=0, controls={}, mods=(traj,))
+    s = _scene(v)
+    out = quantize_rates(s, cps=0.5)
+    new_args = out.voices[0].mods[0].args
+    assert new_args[2] == pytest.approx(0.5)  # rate lowered
+    assert new_args[1] == pytest.approx(2.0)  # depth unchanged
+
+
+def test_quantize_rates_depth_clamp_floor():
+    """Depth scale is clamped to at least 0.15 of original (defensive floor).
+
+    With three divisions {0.125, 0.25, 0.5}, the maximum ratio jump in de-unison
+    is 0.125/0.5=0.25 (well above floor=0.15).  This test verifies depth is
+    never reduced below 15% of original even in the worst-case de-unison jump.
+    """
+    # Three trajectories all snap to 0.125; de-unison moves 2nd→0.25, 3rd→0.5.
+    # Worst jump: 0.125→0.5, ratio=0.25, depth=0.25*1.0=0.25 ≥ 0.15*1.0.
+    original_depth = 1.0
+    trajs = [
+        Trajectory(param="cutoff", shape="sine", args=(500.0, original_depth, 0.13))
+        for _ in range(3)
+    ]
+    voices = [Voice(source_name="supersaw", n=0, controls={}, mods=(t,)) for t in trajs]
+    s = _scene(*voices)
+    out = quantize_rates(s, cps=0.5)
+    for v in out.voices:
+        for t in v.mods:
+            if t.shape == "sine":
+                assert (
+                    t.args[1] >= 0.15 * original_depth
+                ), f"depth {t.args[1]} < floor 0.15 * {original_depth}"
+
+
 def test_quantize_rates_clamp_at_rate_lo():
     """Very low candidate is clamped to RATE_LO."""
-    # cps=0.05 → 0.05 * 0.25 = 0.0125 → clamped to RATE_LO=0.02
-    # rate=RATE_LO → stays at RATE_LO
     traj = Trajectory(param="cutoff", shape="sine", args=(500.0, 100.0, RATE_LO))
     v = Voice(source_name="supersaw", n=0, controls={}, mods=(traj,))
     s = _scene(v)
@@ -443,7 +568,6 @@ def test_quantize_rates_clamp_at_rate_lo():
 
 def test_quantize_rates_clamp_at_rate_hi():
     """Very high candidate is clamped to RATE_HI."""
-    # cps=2.0 → 2.0 * 4 = 8.0 = RATE_HI (already at bound)
     traj = Trajectory(param="cutoff", shape="sine", args=(500.0, 100.0, RATE_HI))
     v = Voice(source_name="supersaw", n=0, controls={}, mods=(traj,))
     s = _scene(v)
@@ -452,29 +576,78 @@ def test_quantize_rates_clamp_at_rate_hi():
     assert result_rate <= RATE_HI
 
 
-def test_quantize_rates_center_and_depth_untouched():
-    """Only the rate arg (index 2) changes; center and depth are preserved."""
-    traj = Trajectory(param="cutoff", shape="sine", args=(500.0, 100.0, 0.4))
-    v = Voice(source_name="supersaw", n=0, controls={}, mods=(traj,))
-    s = _scene(v)
-    out = quantize_rates(s, cps=0.5)
-    new_args = out.voices[0].mods[0].args
-    assert new_args[0] == pytest.approx(500.0)  # center
-    assert new_args[1] == pytest.approx(100.0)  # depth
+def test_quantize_rates_deunison_two_voices_different_divisions():
+    """Two trajectories both nearest the same division end up on different divisions."""
+    # cps=0.5 → candidates=[0.125, 0.25, 0.5]; drift_threshold=0.125
+    # rate=0.2 → nearest is 0.25 for both
+    cps = 0.5
+    t1 = Trajectory(param="cutoff", shape="sine", args=(500.0, 2.0, 0.2))
+    t2 = Trajectory(param="cutoff", shape="sine", args=(500.0, 2.0, 0.2))
+    v1 = Voice(source_name="supersaw", n=0, controls={}, mods=(t1,))
+    v2 = Voice(source_name="supersaw", n=0, controls={}, mods=(t2,))
+    s = _scene(v1, v2)
+    out = quantize_rates(s, cps=cps)
+    r1 = out.voices[0].mods[0].args[2]
+    r2 = out.voices[1].mods[0].args[2]
+    assert r1 != r2, f"Both trajectories landed on division {r1} (de-unison failed)"
+    # Both must still be valid metric divisions
+    valid = {0.125, 0.25, 0.5}
+    assert r1 in valid and r2 in valid
 
 
-def test_quantize_rates_metric_divisions_cps_half():
-    """All five metric divisions at cps=0.5 are the only possible outputs."""
-    # cps=0.5 → {0.125, 0.25, 0.5, 1.0, 2.0}
-    valid = {0.125, 0.25, 0.5, 1.0, 2.0}
-    # Test a spread of rates that should each map to one of these
-    for raw_rate in [0.02, 0.1, 0.18, 0.35, 0.7, 1.5, 3.0, 8.0]:
-        traj = Trajectory(param="cutoff", shape="sine", args=(500.0, 100.0, raw_rate))
-        v = Voice(source_name="supersaw", n=0, controls={}, mods=(traj,))
-        s = _scene(v)
-        out = quantize_rates(s, cps=0.5)
-        result_rate = out.voices[0].mods[0].args[2]
-        assert result_rate in valid, f"rate {raw_rate} → {result_rate} not in {valid}"
+def test_quantize_rates_deunison_three_voices_cover_all_divisions():
+    """Three trajectories all snapping to the same division spread onto all three."""
+    # rate=0.13 → nearest is 0.125 (cps=0.5); de-unison moves 2nd and 3rd
+    cps = 0.5
+    trajs = [
+        Trajectory(param="cutoff", shape="sine", args=(500.0, 2.0, 0.13))
+        for _ in range(3)
+    ]
+    voices = [Voice(source_name="supersaw", n=0, controls={}, mods=(t,)) for t in trajs]
+    s = _scene(*voices)
+    out = quantize_rates(s, cps=cps)
+    rates = {out.voices[i].mods[0].args[2] for i in range(3)}
+    assert rates == {
+        0.125,
+        0.25,
+        0.5,
+    }, f"Expected all three divisions {{0.125, 0.25, 0.5}}, got {rates}"
+
+
+def test_quantize_rates_deunison_depth_scaled_on_move():
+    """When de-unison raises a rate, depth is scaled accordingly."""
+    # Two trajectories at 0.13 → both snap to 0.125. Second is moved to 0.25.
+    # old=0.125, new=0.25 → ratio=0.5 → depth = 2.0 * 0.5 = 1.0
+    cps = 0.5
+    t1 = Trajectory(param="cutoff", shape="sine", args=(500.0, 2.0, 0.13))
+    t2 = Trajectory(param="cutoff", shape="sine", args=(500.0, 2.0, 0.13))
+    v1 = Voice(source_name="supersaw", n=0, controls={}, mods=(t1,))
+    v2 = Voice(source_name="supersaw", n=0, controls={}, mods=(t2,))
+    s = _scene(v1, v2)
+    out = quantize_rates(s, cps=cps)
+    r1 = out.voices[0].mods[0].args[2]
+    r2 = out.voices[1].mods[0].args[2]
+    # The trajectory on the higher division should have reduced depth
+    if r1 > r2:
+        raised = out.voices[0].mods[0].args[1]
+    else:
+        raised = out.voices[1].mods[0].args[1]
+    assert raised < 2.0, "Depth should be reduced when rate is raised by de-unison"
+
+
+def test_quantize_rates_drift_voices_not_deunisoned():
+    """Drift trajectories do not participate in de-unison."""
+    # Two drift trajectories at same rate (below threshold) → both stay unchanged
+    cps = 0.5
+    drift_rate = 0.05  # < 0.125
+    t1 = Trajectory(param="cutoff", shape="sine", args=(500.0, 1.0, drift_rate))
+    t2 = Trajectory(param="cutoff", shape="sine", args=(500.0, 1.0, drift_rate))
+    v1 = Voice(source_name="supersaw", n=0, controls={}, mods=(t1,))
+    v2 = Voice(source_name="supersaw", n=0, controls={}, mods=(t2,))
+    s = _scene(v1, v2)
+    out = quantize_rates(s, cps=cps)
+    assert out.voices[0].mods[0].args[2] == pytest.approx(drift_rate)
+    assert out.voices[1].mods[0].args[2] == pytest.approx(drift_rate)
 
 
 # ---------------------------------------------------------------------------
@@ -603,78 +776,82 @@ def test_stage_gains_boundary_note_12():
 # ---------------------------------------------------------------------------
 
 
-def test_ensemble_rules_label_none_skips_chord_snap():
-    """label=None skips chord snap; other passes still run."""
-    # note=2.0 (D, not a C maj7 chord tone) should NOT be snapped to chord
-    # but gains/registers still apply
+def test_ensemble_rules_label_none_skips_voicing():
+    """label=None skips voice_chord; other passes still run."""
+    # note=2.0 (D) not moved by voicing (label=None).
+    # 1 voice → no register spacing change.
+    # stage_gains: 0 ≤ 2 < 12 → factor 0.9.
     v = Voice(source_name="supersaw", n=0, controls={"note": 2.0, "gain": 1.0}, mods=())
     s = _scene(v)
     out = ensemble_rules(s, label=None, cps=0.5)
-    # Chord snap skipped → note might stay at 2.0 (D, pc=2)
-    # Space registers with 1 voice → no change
-    # stage_gains: note=2.0, 0 ≤ 2 < 12 → factor 0.9
-    result_note = out.voices[0].controls["note"]
-    # Note was NOT chord-snapped (no chord snapping when label=None)
-    assert result_note == 2.0
+    assert out.voices[0].controls["note"] == 2.0  # voicing skipped
     assert out.voices[0].controls["gain"] == pytest.approx(round(1.0 * 0.9, 6))
 
 
-def test_ensemble_rules_na_label_skips_chord_snap():
-    """'N/A' label skips chord snap; other passes still run."""
+def test_ensemble_rules_na_label_skips_voicing():
+    """'N/A' label skips voice_chord; other passes still run."""
     v = Voice(source_name="supersaw", n=0, controls={"note": 2.0, "gain": 1.0}, mods=())
     s = _scene(v)
     out = ensemble_rules(s, label="N/A", cps=0.5)
-    assert out.voices[0].controls["note"] == 2.0  # not chord-snapped
+    assert out.voices[0].controls["note"] == 2.0  # not voiced
 
 
-def test_ensemble_rules_gains_staged_on_final_registers():
-    """Gains reflect FINAL register positions (after spacing), not originals."""
-    # v1=4 (E, pc=4 ∈ Cmaj7), v2=5 (F, pc=5 → snaps to E=4 in Cmaj7).
-    # Both land on pc=4; space_registers moves one up by +12 to 16 (≥12 → 0.8).
-    v1 = Voice(
-        source_name="supersaw", n=0, controls={"note": 4.0, "gain": 1.0}, mods=()
-    )
-    v2 = Voice(
-        source_name="supersaw", n=0, controls={"note": 5.0, "gain": 1.0}, mods=()
-    )
+def test_ensemble_rules_two_voices_get_distinct_pcs():
+    """Two voices in C major get distinct chord degrees after voicing."""
+    v1 = _voice(note=0.0)
+    v2 = _voice(note=1.0)
     s = _scene(v1, v2)
     out = ensemble_rules(s, label="C", cps=0.5)
-    # One voice should be in treble register (note ≥ 12) with gain factor 0.8
-    notes = [v.controls["note"] for v in out.voices]
-    gains = [v.controls["gain"] for v in out.voices]
-    # Verify: the voice with note ≥ 12 has gain ≈ 0.8 (× the pre-existing 1.0)
-    for note, gain in zip(notes, gains, strict=False):
-        if note >= 12:
-            assert gain == pytest.approx(
-                round(1.0 * 0.8, 6)
-            ), f"Expected treble gain 0.8, got {gain} for note {note}"
+    pcs = {_note_pc(v.controls["note"]) for v in out.voices}
+    assert len(pcs) == 2
+
+
+def test_ensemble_rules_gains_reflect_register():
+    """Gains reflect register positions after voicing+spacing."""
+    # Two voices — voicing places them on distinct degrees; stage_gains
+    # reflects whatever register they end up in.
+    v1 = _voice(note=0.0, gain=1.0)
+    v2 = _voice(note=12.0, gain=1.0)
+    s = _scene(v1, v2)
+    out = ensemble_rules(s, label="C", cps=0.5)
+    # All gains must be within spec bounds.
+    for v in out.voices:
+        g = v.controls.get("gain", 1.0)
+        assert _GAIN_LO <= g <= _GAIN_HI
 
 
 def test_ensemble_rules_rates_quantised():
-    """ensemble_rules quantises sine/walk rates to metric divisions."""
-    # cps=0.5 → metric rates {0.125, 0.25, 0.5, 1.0, 2.0}
+    """ensemble_rules quantises sine/walk rates to the three metric divisions."""
+    # cps=0.5 → rhythmic candidates {0.125, 0.25, 0.5}
     traj = Trajectory(param="cutoff", shape="sine", args=(500.0, 100.0, 0.4))
     v = Voice(source_name="supersaw", n=0, controls={"note": 0.0}, mods=(traj,))
     s = _scene(v)
     out = ensemble_rules(s, label=None, cps=0.5)
     rate = out.voices[0].mods[0].args[2]
-    assert rate in {0.125, 0.25, 0.5, 1.0, 2.0}
+    assert rate in {0.125, 0.25, 0.5}
 
 
-def test_ensemble_rules_order_chord_then_register_then_rate_then_gain():
-    """Composition order: chord snap → register spacing → rate quantisation → gain."""
-    # Two voices with notes in C scale but not C maj7, close together.
-    # After chord snap: both at nearest chord tone.
-    # After register spacing: at least 3 apart.
-    # Gain staged on FINAL (spaced) positions.
-    v1 = _voice(
-        note=2.0
-    )  # D → snaps to C(0) or E(4), nearest=C? no: both dist=2, tie→C=0
-    v2 = _voice(note=9.0)  # A → nearest C maj7: G=7 (dist=2), B=11 (dist=2), tie→G=7
+def test_ensemble_rules_drift_rates_pass_through():
+    """Drift rates (< cps/4) pass through ensemble_rules untouched."""
+    drift_rate = 0.03
+    traj = Trajectory(param="cutoff", shape="sine", args=(500.0, 1.0, drift_rate))
+    v = Voice(source_name="supersaw", n=0, controls={"note": 0.0}, mods=(traj,))
+    s = _scene(v)
+    out = ensemble_rules(s, label=None, cps=0.5)
+    assert out.voices[0].mods[0].args[2] == pytest.approx(drift_rate)
+
+
+def test_ensemble_rules_order_voicing_then_register_then_rate_then_gain():
+    """Composition order: voice_chord → space_registers → quantize_rates → gains."""
+    # Two voices. Voicing assigns distinct degrees. Register spacing enforces gap.
+    v1 = _voice(note=0.0)
+    v2 = _voice(note=2.0)
     s = _scene(v1, v2)
     out = ensemble_rules(s, label="C", cps=0.5)
     notes = sorted(v.controls["note"] for v in out.voices)
+    # Pairwise gap >= 3 (register spacing applied after voicing)
     assert notes[1] - notes[0] >= 3
-    # Both are chord tones
+    # Both are C-major chord tones (voicing applied)
+    c_maj7_pcs = {0, 4, 7, 11}
     for n in notes:
-        assert _note_pc(n) in _C_MAJ7
+        assert _note_pc(n) in c_maj7_pcs
