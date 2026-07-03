@@ -590,3 +590,100 @@ def test_generation_record_all_fail_dict():
     d = rec.to_dict()
     assert d["winner_index"] == -1
     assert d["wav_path"] is None
+
+
+# ---------------------------------------------------------------------------
+# make_candidates() — key-locking integration (issue #58)
+# ---------------------------------------------------------------------------
+
+# F# natural minor pitch classes: {1, 2, 4, 6, 8, 9, 11}
+_FS_MINOR_PCS = frozenset({1, 2, 4, 6, 8, 9, 11})
+
+
+def _window_keyed(key: str, energy: float = 0.1) -> AnalysisWindow:
+    """Window whose descriptor carries the given key label."""
+    return AnalysisWindow(
+        t0=0.0,
+        t1=4.0,
+        descriptor=f"tempo=120 density=lo key={key} brightness=3/5 motion=steady",
+        tempo=120.0,
+        energy=energy,
+        embedding=np.empty(0, dtype=np.float64),
+    )
+
+
+def _note_pc(v: float) -> int:
+    return int(round(v)) % 12
+
+
+def _scene_notes_in_key(pool: list[Scene], pcs: frozenset[int]) -> bool:
+    """Return True iff every static note control and every steps-traj arg is in pcs."""
+    for scene in pool:
+        for voice in scene.voices:
+            if "note" in voice.controls:
+                if _note_pc(float(voice.controls["note"])) not in pcs:
+                    return False
+            for traj in voice.mods:
+                if traj.param == "note":
+                    if traj.shape == "steps":
+                        if any(_note_pc(a) not in pcs for a in traj.args):
+                            return False
+                    else:
+                        # ramp/sine/walk: first arg (centre/start) must be in key
+                        if traj.args and _note_pc(traj.args[0]) not in pcs:
+                            return False
+    return True
+
+
+def test_make_candidates_key_locked_f_sharp_minor():
+    """Candidates from a window with key=F#m have all note pcs in F# natural minor."""
+    rng = random.Random(42)
+    state = PursuitState.initial()
+    w = _window_keyed("F#m")
+    cfg = PursuitConfig(k_candidates=8)
+    pool = make_candidates(rng, "propose", state, w, SOURCES, None, cfg)
+    assert len(pool) >= 1
+    assert _scene_notes_in_key(
+        pool, _FS_MINOR_PCS
+    ), "Some candidate has a note pc outside F# minor"
+
+
+def test_make_candidates_key_locked_via_proposer():
+    """A model-proposed scene with out-of-key notes is snapped before entering pool."""
+    # Scene with D# (pc=3) which is NOT in F#m — it should be snapped to D (pc=2).
+    _OUT_OF_KEY_SCENE = "scene voice supersaw # note 3"
+
+    def _propose(descriptor: str) -> str:
+        return _OUT_OF_KEY_SCENE
+
+    rng = random.Random(0)
+    state = PursuitState.initial()
+    w = _window_keyed("F#m")
+    cfg = PursuitConfig(k_candidates=4)
+    pool = make_candidates(rng, "propose", state, w, SOURCES, _propose, cfg)
+    assert len(pool) >= 1
+    # First candidate came from the proposer; its note must be snapped to F#m.
+    first = pool[0]
+    for voice in first.voices:
+        if "note" in voice.controls:
+            assert _note_pc(float(voice.controls["note"])) in _FS_MINOR_PCS
+
+
+def test_make_candidates_key_na_does_not_snap():
+    """A window with key=N/A leaves notes unsnapped (proposer note 3 stays as 3)."""
+    _SCENE_NOTE_3 = "scene voice supersaw # note 3"
+
+    def _propose(descriptor: str) -> str:
+        return _SCENE_NOTE_3
+
+    rng = random.Random(0)
+    state = PursuitState.initial()
+    w = _window_keyed("N/A")
+    cfg = PursuitConfig(k_candidates=4)
+    pool = make_candidates(rng, "propose", state, w, SOURCES, _propose, cfg)
+    assert len(pool) >= 1
+    # The proposer's note=3 (D#) must NOT have been snapped — it stays at pc=3.
+    first = pool[0]
+    for voice in first.voices:
+        if "note" in voice.controls:
+            assert _note_pc(float(voice.controls["note"])) == 3
