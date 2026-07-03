@@ -428,6 +428,8 @@ def _run_sclang(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        encoding="utf-8",
+        errors="replace",  # sclang error dumps can contain non-UTF-8 bytes
         env=env,
         start_new_session=True,
     )
