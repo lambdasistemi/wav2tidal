@@ -67,10 +67,13 @@ class ClapEmbedder:
             raise ValueError(f"ClapEmbedder needs {CLAP_SR} Hz audio, got {sr}")
         self._ensure_loaded()
         inputs = self._processor(
-            audios=np.asarray(y), sampling_rate=CLAP_SR, return_tensors="pt"
+            audio=np.asarray(y), sampling_rate=CLAP_SR, return_tensors="pt"
         )
         with self._torch.no_grad():
-            feats = self._model.get_audio_features(**inputs)
+            out = self._model.get_audio_features(**inputs)
+        # transformers ≥5 returns a ModelOutput whose pooler_output holds the
+        # L2-normalized projected features; ≤4 returned the tensor directly.
+        feats = out if self._torch.is_tensor(out) else out.pooler_output
         return feats.squeeze(0).cpu().numpy().astype(np.float64)
 
 
