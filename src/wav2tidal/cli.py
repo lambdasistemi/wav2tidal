@@ -138,12 +138,44 @@ def _run_eval(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_replay(args: argparse.Namespace) -> int:
+    from .core.pursuit import PursuitConfig
+    from .pipeline.replay import replay
+
+    input_path = Path(args.input)
+    if not input_path.is_file():
+        print(f"replay: --input {args.input!r} is not a file", file=sys.stderr)
+        return 1
+
+    out_path = Path(args.out)
+    cfg = PursuitConfig(k_candidates=args.k)
+
+    try:
+        out = replay(
+            input_path,
+            out_path,
+            checkpoint=args.checkpoint,
+            embedder_kind=args.embedder,
+            cfg=cfg,
+            seed=args.seed,
+        )
+    except (ValueError, RuntimeError) as e:
+        print(f"replay: {e}", file=sys.stderr)
+        return 1
+
+    log_path = out.with_suffix(".session.json")
+    print(f"output: {out}")
+    print(f"session log: {log_path}")
+    return 0
+
+
 _HANDLERS = {
     "ingest": _run_ingest,
     "profile": _run_profile,
     "dataset": _run_dataset,
     "train": _run_train,
     "eval": _run_eval,
+    "replay": _run_replay,
 }
 
 
@@ -219,6 +251,19 @@ def build_parser() -> argparse.ArgumentParser:
             [opt("--config"), opt("--target", nargs="+"), seed],
         ),
         ("doctor", "T045", "environment preflight for the live session", []),
+        (
+            "replay",
+            "US3-4",
+            "mix.wav in → reinterpretation.wav out + session log",
+            [
+                opt("--input", required=True),
+                opt("--out", default="reinterpretation.wav"),
+                opt("--checkpoint"),
+                opt("--embedder", default="clap"),
+                opt("--seed", type=int, default=0),
+                opt("--k", type=int, default=8),
+            ],
+        ),
     ]
 
     for name, task, help_, args in stages:
